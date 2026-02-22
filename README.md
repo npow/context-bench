@@ -24,7 +24,7 @@ context-bench gives you a **single `evaluate()` call** that runs your system aga
 ## Quick start
 
 ```bash
-pip install -e .
+uv sync
 ```
 
 Benchmark [Headroom](https://github.com/chopratejas/headroom) in **3 lines**:
@@ -217,24 +217,24 @@ Or bring your own — any `list[dict]` with `"id"` and `"context"` keys works.
 
 ```bash
 # Core (just tiktoken)
-pip install -e .
+uv sync
 
 # With HuggingFace dataset loaders
-pip install -e ".[datasets]"
+uv sync --extra datasets
 
 # Everything
-pip install -e ".[all]"
+uv sync --all-extras
 
 # Development
-pip install -e ".[dev]"
+uv sync --group dev
 ```
 
-Requires **Python 3.10+**.
+Requires **Python 3.10+** and [uv](https://docs.astral.sh/uv/).
 
 ## Running tests
 
 ```bash
-pytest
+uv run pytest
 ```
 
 ## Project structure
@@ -273,11 +273,10 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - run: pip install -e ".[dev]"
-      - run: pytest
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --group dev
+      - run: uv run pytest
 ```
 
 ## License

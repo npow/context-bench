@@ -22,6 +22,8 @@ rich = ["rich>=13.0.0"]
 all = [
     "context-bench[datasets,rich]",
 ]
+
+[dependency-groups]
 dev = [
     "pytest>=7.0",
     "context-bench[all]",
