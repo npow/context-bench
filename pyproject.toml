@@ -9,9 +9,36 @@ description = "Benchmark any system that transforms LLM context"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+keywords = [
+    "llm",
+    "benchmark",
+    "context-compression",
+    "prompt-compression",
+    "rag",
+    "evaluation",
+    "openai",
+    "headroom",
+    "token-optimization",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
 dependencies = [
     "tiktoken>=0.5.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/npow/context-bench"
+Repository = "https://github.com/npow/context-bench"
+Issues = "https://github.com/npow/context-bench/issues"
 
 [project.optional-dependencies]
 datasets = [
