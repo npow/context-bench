@@ -75,7 +75,7 @@ def test_exact_match():
 
 def test_recall_score():
     assert recall_score("the cat sat on mat", "the cat sat") == 1.0
-    assert recall_score("the cat", "the cat sat on mat") == 0.4  # 2/5 unique words
+    assert recall_score("the cat", "the cat sat on mat") == 0.25  # "the" stripped by normalize; 1/4 tokens
 
 
 def test_pareto_rank():
