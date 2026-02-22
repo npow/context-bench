@@ -100,9 +100,9 @@ print(result.summary)
 
 ```mermaid
 flowchart LR
-    D[Dataset\ndicts] --> S[System\n.process]
-    S --> E[Evaluator\n.score]
-    E --> M[Metric\n.compute]
+    D[Dataset<br/>dicts] --> S[System<br/>.process]
+    S --> E[Evaluator<br/>.score]
+    E --> M[Metric<br/>.compute]
     S -. output dict .-> S
     E -. scores dict .-> E
     M -. summary dict .-> M
