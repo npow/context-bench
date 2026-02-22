@@ -2,7 +2,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-pytest-brightgreen.svg)](#running-tests)
+[![CI](https://github.com/npow/context-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/npow/context-bench/actions/workflows/ci.yml)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 **Benchmark any system that transforms LLM context.**
@@ -84,17 +84,14 @@ print(result.summary)
 
 ## How it works
 
-```
-Dataset (dicts)
-    │
-    ▼
-┌─────────┐     ┌───────────┐     ┌────────┐
-│ System   │────▶│ Evaluator │────▶│ Metric │
-│.process()│     │ .score()  │     │.compute│
-└─────────┘     └───────────┘     └────────┘
-    │                 │                │
-    ▼                 ▼                ▼
- output dict    scores dict     summary dict
+```mermaid
+flowchart LR
+    D[Dataset\ndicts] --> S[System\n.process]
+    S --> E[Evaluator\n.score]
+    E --> M[Metric\n.compute]
+    S -. output dict .-> S
+    E -. scores dict .-> E
+    M -. summary dict .-> M
 ```
 
 1. **Dataset** — any `Iterable[dict]`. Must have `"id"` and `"context"` keys.
@@ -297,7 +294,11 @@ This project uses GitHub Actions for continuous integration:
 ```yaml
 # .github/workflows/ci.yml
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
 jobs:
   test:
     runs-on: ubuntu-latest
