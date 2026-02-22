@@ -19,7 +19,7 @@ You built (or bought) something that modifies LLM context. Now you need to answe
 - **Is the cost worth it?** Track compression ratio and cost-per-successful-completion side by side.
 - **Which approach wins?** Run multiple systems on the same dataset in one call and get a comparison table.
 
-context-bench gives you a **single `evaluate()` call** that runs your system against a dataset, scores every example, and aggregates the results — no boilerplate, no framework lock-in.
+context-bench gives you a **single CLI command** (or Python `evaluate()` call) that runs your system against a dataset, scores every example, and aggregates the results — no boilerplate, no framework lock-in.
 
 ## Quick start
 
@@ -27,20 +27,71 @@ context-bench gives you a **single `evaluate()` call** that runs your system aga
 uv sync
 ```
 
-Benchmark [Headroom](https://github.com/chopratejas/headroom) in **3 lines**:
+Benchmark [Kompact](https://github.com/npow/kompact) in **one command**:
+
+```bash
+# Start your proxy
+uv run kompact proxy --port 7878
+
+# Benchmark it
+context-bench --proxy http://localhost:7878 --dataset hotpotqa -n 50
+```
+
+Compare two proxies head-to-head:
+
+```bash
+context-bench \
+  --proxy http://localhost:7878 --name kompact \
+  --proxy http://localhost:8787 --name headroom \
+  --dataset hotpotqa -n 50
+```
+
+Multiple datasets, JSON output, custom model:
+
+```bash
+context-bench \
+  --proxy http://localhost:7878 \
+  --dataset hotpotqa --dataset gsm8k \
+  --model claude-sonnet-4-5-20250929 \
+  --output json -n 100
+```
+
+Use a local JSONL file:
+
+```bash
+context-bench --proxy http://localhost:7878 --dataset ./my_data.jsonl
+```
+
+### CLI reference
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--proxy URL` | *(required)* | OpenAI-compatible proxy URL (repeatable) |
+| `--name NAME` | hostname from URL | Display name for the proxy (repeatable, paired with `--proxy`) |
+| `--dataset NAME` | *(required)* | Dataset name or `.jsonl` path (repeatable) |
+| `--model MODEL` | `gpt-4` | Model name passed through to the proxy |
+| `-n, --max-examples` | all | Limit examples per dataset |
+| `--output {table,json}` | `table` | Output format |
+| `--score-field` | `f1` | Score field from AnswerQuality for metrics |
+| `--threshold` | `0.7` | Pass/fail threshold for PassRate and CostOfPass |
+
+Known datasets: `hotpotqa`, `gsm8k`, `bfcl`, `apigen`, `swebench`, `swebench-verified`, `swebench-lite`.
+
+### Python API
+
+For full control, use the Python API directly:
 
 ```python
 from context_bench import OpenAIProxy, evaluate
+from context_bench.evaluators import AnswerQuality
 from context_bench.metrics import MeanScore, PassRate
 
-# headroom proxy --port 8787
-headroom = OpenAIProxy("http://localhost:8787", model="claude-sonnet-4-5-20250929", name="headroom")
+kompact = OpenAIProxy("http://localhost:7878", model="claude-sonnet-4-5-20250929", name="kompact")
 result = evaluate(
-    systems=[headroom],
+    systems=[kompact],
     dataset=your_dataset,
-    evaluators=[your_evaluator],
-    metrics=[MeanScore(), PassRate()],
-    text_fields=["response"],   # count only the proxy output tokens
+    evaluators=[AnswerQuality()],
+    metrics=[MeanScore(score_field="f1"), PassRate(score_field="f1")],
 )
 print(result.summary)
 ```
@@ -66,35 +117,30 @@ All interfaces are [typing.Protocol](https://docs.python.org/3/library/typing.ht
 
 ## Benchmark a proxy
 
-The built-in `OpenAIProxy` system wraps any OpenAI-compatible endpoint. Point at a URL, get quality and cost metrics back — no HTTP boilerplate needed.
+The CLI wraps `OpenAIProxy` + `AnswerQuality` + sensible metrics. For custom evaluators or SDK-based systems, use the Python API.
+
+### [Kompact](https://github.com/npow/kompact)
+
+```bash
+uv run kompact proxy --port 7878
+context-bench --proxy http://localhost:7878 --dataset hotpotqa -n 50
+```
 
 ### [Headroom](https://github.com/chopratejas/headroom)
 
 ```bash
 pip install "headroom-ai[proxy]"
 headroom proxy --port 8787
+context-bench --proxy http://localhost:8787 --dataset hotpotqa -n 50
 ```
 
-```python
-from context_bench import OpenAIProxy, evaluate
-from context_bench.metrics import CostOfPass, MeanScore, PassRate
-from context_bench.metrics.quality import f1_score
+### Compare Kompact vs Headroom
 
-headroom = OpenAIProxy("http://localhost:8787", model="claude-sonnet-4-5-20250929", name="headroom")
-
-class QAEvaluator:
-    name = "qa_f1"
-    def score(self, original, processed):
-        return {"score": f1_score(processed.get("response", ""),
-                                   original.get("answer", ""))}
-
-result = evaluate(
-    systems=[headroom],
-    dataset=your_dataset,
-    evaluators=[QAEvaluator()],
-    metrics=[MeanScore(), PassRate(), CostOfPass()],
-    text_fields=["response"],
-)
+```bash
+context-bench \
+  --proxy http://localhost:7878 --name kompact \
+  --proxy http://localhost:8787 --name headroom \
+  --dataset hotpotqa -n 50
 ```
 
 ### [Compresr](https://compresr.ai/)
@@ -118,21 +164,6 @@ class CompresrSystem:
         return {**example, "context": compressed}
 ```
 
-### Compare Headroom vs Compresr
-
-```python
-result = evaluate(
-    systems=[
-        OpenAIProxy("http://localhost:8787", model="claude-sonnet-4-5-20250929", name="headroom"),
-        CompresrSystem(api_key="..."),
-    ],
-    dataset=dataset,
-    evaluators=[QAEvaluator()],
-    metrics=[MeanScore(), PassRate(), CostOfPass()],
-    text_fields=["response"],
-)
-```
-
 ### Any OpenAI-compatible endpoint
 
 ```python
@@ -143,42 +174,6 @@ OpenAIProxy(
     system_prompt="Be concise.",   # prepended as system message
     extra_body={"temperature": 0}, # any additional request params
 )
-```
-
-> **`text_fields=["response"]`** — By default the runner counts all string fields for token stats, which would double-count context in output tokens. Pass `text_fields=["response"]` so only the proxy's actual output is measured.
-
-## Compare systems head-to-head
-
-```python
-from context_bench import OpenAIProxy, evaluate
-from context_bench.metrics import CompressionRatio, CostOfPass, MeanScore, PassRate
-from context_bench.reporters.markdown import to_markdown
-
-result = evaluate(
-    systems=[
-        OpenAIProxy("http://localhost:8787", model="claude-sonnet-4-5-20250929", name="headroom"),
-        CompresrSystem(api_key="..."),
-        OpenAIProxy("http://localhost:8080", model="gpt-4", name="baseline_gpt4"),
-    ],
-    dataset=dataset,
-    evaluators=[QAEvaluator()],
-    metrics=[MeanScore(), PassRate(), CompressionRatio(), CostOfPass()],
-    text_fields=["response"],
-)
-
-print(to_markdown(result))
-```
-
-Output:
-
-```
-# Evaluation Results
-
-| System        | mean_score | pass_rate | compression_ratio | cost_of_pass |
-|---------------|------------|-----------|-------------------|--------------|
-| headroom      | 0.9200     | 0.9000    | 0.8760            | 145.4118     |
-| compresr      | 0.8800     | 0.8500    | 0.7200            | 185.5556     |
-| baseline_gpt4 | 0.9500     | 0.9500    | 0.0000            | 258.0000     |
 ```
 
 ### Export results
@@ -197,7 +192,9 @@ result.filter(system="headroom")  # filter to one system
 | [GSM8K](https://github.com/openai/grade-school-math) | Math reasoning | `datasets.huggingface.gsm8k()` | `pip install -e ".[datasets]"` |
 | [BFCL v3](https://gorilla.cs.berkeley.edu/leaderboard.html) | Function calling | `datasets.huggingface.bfcl_simple()` | `pip install -e ".[datasets]"` |
 | [APIGen](https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k) | Multi-turn tool use | `datasets.agent_traces.apigen_mt()` | `pip install -e ".[datasets]"` |
-| [SWE-agent](https://swe-agent.com/) | Coding agent traces | `datasets.agent_traces.swe_agent_traces()` | `pip install -e ".[datasets]"` |
+| [SWE-bench](https://www.swebench.com/) | Coding agent traces | `datasets.agent_traces.swebench()` | `pip install -e ".[datasets]"` |
+| [SWE-bench Verified](https://www.swebench.com/) | Coding (500 validated) | `datasets.agent_traces.swebench_verified()` | `pip install -e ".[datasets]"` |
+| [SWE-bench Lite](https://www.swebench.com/) | Coding (300 subset) | `datasets.agent_traces.swebench_lite()` | `pip install -e ".[datasets]"` |
 | Local JSONL | Any | `datasets.local.load_jsonl(path)` | Core |
 
 Or bring your own — any `list[dict]` with `"id"` and `"context"` keys works.
@@ -241,6 +238,7 @@ uv run pytest
 
 ```
 src/context_bench/
+├── __main__.py          # CLI entry point (context-bench command)
 ├── __init__.py          # Public API: evaluate, EvalResult, EvalRow, OpenAIProxy
 ├── types.py             # Protocol definitions (System, Evaluator, Metric)
 ├── runner.py            # Core evaluate() orchestration
