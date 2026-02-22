@@ -1,26 +1,36 @@
-"""Benchmark an OpenAI-compatible proxy.
+"""Benchmark Headroom context compression proxy.
+
+Prerequisites:
+    pip install "headroom-ai[proxy]"
+    headroom proxy --port 8787
 
 Run with:
     python examples/proxy_benchmark.py
-
-Requires a running proxy on http://localhost:8080 (or change BASE_URL).
 """
 
 from context_bench import evaluate
 from context_bench.metrics import CompressionRatio, CostOfPass, MeanScore, PassRate
+from context_bench.metrics.quality import f1_score
 from context_bench.reporters.markdown import to_markdown
 from context_bench.systems import OpenAIProxy
 
 # ---------------------------------------------------------------------------
-# 1. Point at your proxy
+# 1. Point at your proxy (Headroom, or any OpenAI-compatible endpoint)
 # ---------------------------------------------------------------------------
 
-proxy = OpenAIProxy(
-    base_url="http://localhost:8080",
-    model="gpt-3.5-turbo",
+headroom = OpenAIProxy(
+    base_url="http://localhost:8787",
+    model="claude-sonnet-4-5-20250929",
+    name="headroom",
     # api_key="sk-...",          # or set OPENAI_API_KEY env var
-    # system_prompt="Answer the question concisely.",
     # extra_body={"temperature": 0, "max_tokens": 256},
+)
+
+# Optional: compare against a baseline without compression
+baseline = OpenAIProxy(
+    base_url="http://localhost:8080",
+    model="claude-sonnet-4-5-20250929",
+    name="baseline",
 )
 
 # ---------------------------------------------------------------------------
@@ -52,8 +62,6 @@ dataset = [
 # 3. Define a simple evaluator
 # ---------------------------------------------------------------------------
 
-from context_bench.metrics.quality import f1_score  # noqa: E402
-
 
 class QAEvaluator:
     name = "qa_f1"
@@ -69,7 +77,7 @@ class QAEvaluator:
 # ---------------------------------------------------------------------------
 
 result = evaluate(
-    systems=[proxy],
+    systems=[headroom, baseline],
     dataset=dataset,
     evaluators=[QAEvaluator()],
     metrics=[MeanScore(), PassRate(threshold=0.5), CompressionRatio(), CostOfPass()],

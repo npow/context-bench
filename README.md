@@ -27,59 +27,22 @@ context-bench gives you a **single `evaluate()` call** that runs your system aga
 pip install -e .
 ```
 
-Benchmark an OpenAI-compatible proxy in **3 lines**:
+Benchmark [Headroom](https://github.com/chopratejas/headroom) in **3 lines**:
 
 ```python
 from context_bench import OpenAIProxy, evaluate
 from context_bench.metrics import MeanScore, PassRate
 
-proxy = OpenAIProxy("http://localhost:8080", model="gpt-3.5-turbo")
+# headroom proxy --port 8787
+headroom = OpenAIProxy("http://localhost:8787", model="claude-sonnet-4-5-20250929", name="headroom")
 result = evaluate(
-    systems=[proxy],
+    systems=[headroom],
     dataset=your_dataset,
     evaluators=[your_evaluator],
     metrics=[MeanScore(), PassRate()],
     text_fields=["response"],   # count only the proxy output tokens
 )
 print(result.summary)
-```
-
-Or define a **custom system** — just `.name` and `.process()`:
-
-```python
-from context_bench import evaluate
-from context_bench.metrics import CompressionRatio, MeanScore
-
-# 1. Define your system — just .name and .process()
-class MyProxy:
-    name = "my_proxy"
-
-    def process(self, example):
-        result = dict(example)
-        # Your compression / transformation logic here
-        result["context"] = your_compressor(example["context"])
-        return result
-
-# 2. Define how to score — just .name and .score()
-class QAEvaluator:
-    name = "qa_accuracy"
-
-    def score(self, original, processed):
-        # Compare processed output against ground truth
-        expected = original["answer"]
-        actual = run_qa(processed["context"], original["question"])
-        return {"score": 1.0 if actual == expected else 0.0}
-
-# 3. Run it
-result = evaluate(
-    systems=[MyProxy()],
-    dataset=your_dataset,         # any list of dicts with "id" and "context"
-    evaluators=[QAEvaluator()],
-    metrics=[MeanScore(), CompressionRatio()],
-)
-
-print(result.summary)
-# {'my_proxy': {'mean_score': 0.85, 'compression_ratio': 0.42, ...}}
 ```
 
 ## How it works
@@ -105,18 +68,19 @@ All interfaces are [typing.Protocol](https://docs.python.org/3/library/typing.ht
 
 The built-in `OpenAIProxy` system wraps any OpenAI-compatible endpoint. Point at a URL, get quality and cost metrics back — no HTTP boilerplate needed.
 
+### [Headroom](https://github.com/chopratejas/headroom)
+
+```bash
+pip install "headroom-ai[proxy]"
+headroom proxy --port 8787
+```
+
 ```python
 from context_bench import OpenAIProxy, evaluate
 from context_bench.metrics import CostOfPass, MeanScore, PassRate
 from context_bench.metrics.quality import f1_score
 
-proxy = OpenAIProxy(
-    base_url="http://localhost:8080",
-    model="gpt-3.5-turbo",
-    # api_key="sk-...",              # or set OPENAI_API_KEY env var
-    # system_prompt="Be concise.",   # prepended as system message
-    # extra_body={"temperature": 0}, # any additional request params
-)
+headroom = OpenAIProxy("http://localhost:8787", model="claude-sonnet-4-5-20250929", name="headroom")
 
 class QAEvaluator:
     name = "qa_f1"
@@ -125,38 +89,42 @@ class QAEvaluator:
                                    original.get("answer", ""))}
 
 result = evaluate(
-    systems=[proxy],
+    systems=[headroom],
     dataset=your_dataset,
     evaluators=[QAEvaluator()],
     metrics=[MeanScore(), PassRate(), CostOfPass()],
-    text_fields=["response"],  # count only proxy output, not echoed context
+    text_fields=["response"],
 )
 ```
 
-> **`text_fields=["response"]`** — By default the runner counts all string fields for token stats, which would double-count context in output tokens. Pass `text_fields=["response"]` so only the proxy's actual output is measured.
+### [Compresr](https://compresr.ai/)
 
-### Custom message builders
-
-Override how examples are mapped to chat messages:
+Compresr uses a Python SDK instead of a proxy, so wrap it in a custom system:
 
 ```python
-def my_messages(example):
-    return [
-        {"role": "system", "content": "You are a QA bot."},
-        {"role": "user", "content": f"Context: {example['context']}\n\nQ: {example['question']}"},
-    ]
+from compresr import CompressionClient
 
-proxy = OpenAIProxy("http://localhost:8080", build_messages=my_messages)
+class CompresrSystem:
+    name = "compresr"
+
+    def __init__(self, api_key):
+        self.client = CompressionClient(api_key=api_key)
+
+    def process(self, example):
+        compressed = self.client.generate(
+            context=example["context"],
+            question=example.get("question", ""),
+        )
+        return {**example, "context": compressed}
 ```
 
-### Compare multiple proxies
+### Compare Headroom vs Compresr
 
 ```python
 result = evaluate(
     systems=[
-        OpenAIProxy("http://localhost:8080", model="gpt-3.5-turbo", name="gpt35"),
-        OpenAIProxy("http://localhost:8080", model="gpt-4", name="gpt4"),
-        OpenAIProxy("http://localhost:9090", name="my_custom_proxy"),
+        OpenAIProxy("http://localhost:8787", model="claude-sonnet-4-5-20250929", name="headroom"),
+        CompresrSystem(api_key="..."),
     ],
     dataset=dataset,
     evaluators=[QAEvaluator()],
@@ -164,6 +132,20 @@ result = evaluate(
     text_fields=["response"],
 )
 ```
+
+### Any OpenAI-compatible endpoint
+
+```python
+OpenAIProxy(
+    base_url="http://localhost:8080",
+    model="gpt-4",
+    api_key="sk-...",              # or set OPENAI_API_KEY env var
+    system_prompt="Be concise.",   # prepended as system message
+    extra_body={"temperature": 0}, # any additional request params
+)
+```
+
+> **`text_fields=["response"]`** — By default the runner counts all string fields for token stats, which would double-count context in output tokens. Pass `text_fields=["response"]` so only the proxy's actual output is measured.
 
 ## Compare systems head-to-head
 
@@ -174,12 +156,12 @@ from context_bench.reporters.markdown import to_markdown
 
 result = evaluate(
     systems=[
-        OpenAIProxy("http://localhost:8080", model="gpt-3.5-turbo", name="gpt35"),
-        OpenAIProxy("http://localhost:8080", model="gpt-4", name="gpt4"),
-        OpenAIProxy("http://localhost:9090", name="custom_proxy"),
+        OpenAIProxy("http://localhost:8787", model="claude-sonnet-4-5-20250929", name="headroom"),
+        CompresrSystem(api_key="..."),
+        OpenAIProxy("http://localhost:8080", model="gpt-4", name="baseline_gpt4"),
     ],
     dataset=dataset,
-    evaluators=[your_evaluator],
+    evaluators=[QAEvaluator()],
     metrics=[MeanScore(), PassRate(), CompressionRatio(), CostOfPass()],
     text_fields=["response"],
 )
@@ -192,11 +174,11 @@ Output:
 ```
 # Evaluation Results
 
-| System       | mean_score | pass_rate | compression_ratio | cost_of_pass |
-|--------------|------------|-----------|-------------------|--------------|
-| gpt35        | 0.8800     | 0.8500    | 0.0000            | 185.5556     |
-| gpt4         | 0.9500     | 0.9500    | 0.0000            | 258.0000     |
-| custom_proxy | 0.9200     | 0.9000    | 0.3500            | 145.4118     |
+| System        | mean_score | pass_rate | compression_ratio | cost_of_pass |
+|---------------|------------|-----------|-------------------|--------------|
+| headroom      | 0.9200     | 0.9000    | 0.8760            | 145.4118     |
+| compresr      | 0.8800     | 0.8500    | 0.7200            | 185.5556     |
+| baseline_gpt4 | 0.9500     | 0.9500    | 0.0000            | 258.0000     |
 ```
 
 ### Export results
@@ -204,7 +186,7 @@ Output:
 ```python
 result.to_json()          # JSON string
 result.to_dataframe()     # pandas DataFrame (requires pandas)
-result.filter(system="gpt4")  # filter to one system
+result.filter(system="headroom")  # filter to one system
 ```
 
 ## Built-in datasets
