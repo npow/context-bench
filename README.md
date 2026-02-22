@@ -165,39 +165,23 @@ result = evaluate(
 )
 ```
 
-## Benchmarking your own proxy
-
-Wrap any context transformation system in 5 minutes:
+## Compare systems head-to-head
 
 ```python
-class YourProxy:
-    name = "my_compressor_v2"
-
-    def process(self, example):
-        result = dict(example)
-        # Call your compressor, API, or library
-        result["context"] = my_compressor.compress(example["context"])
-        return result
-```
-
-That's it. No base class, no registration, no config file. Any object with `.name` and `.process()` works.
-
-### Compare multiple systems head-to-head
-
-```python
-from context_bench import evaluate
+from context_bench import OpenAIProxy, evaluate
 from context_bench.metrics import CompressionRatio, CostOfPass, MeanScore, PassRate
 from context_bench.reporters.markdown import to_markdown
 
 result = evaluate(
     systems=[
-        IdentityBaseline(),    # no-op baseline
-        YourProxyV1(),         # your current approach
-        YourProxyV2(),         # the new thing you're testing
+        OpenAIProxy("http://localhost:8080", model="gpt-3.5-turbo", name="gpt35"),
+        OpenAIProxy("http://localhost:8080", model="gpt-4", name="gpt4"),
+        OpenAIProxy("http://localhost:9090", name="custom_proxy"),
     ],
     dataset=dataset,
     evaluators=[your_evaluator],
     metrics=[MeanScore(), PassRate(), CompressionRatio(), CostOfPass()],
+    text_fields=["response"],
 )
 
 print(to_markdown(result))
@@ -208,11 +192,11 @@ Output:
 ```
 # Evaluation Results
 
-| System          | mean_score | pass_rate | compression_ratio | cost_of_pass |
-|-----------------|------------|-----------|-------------------|--------------|
-| identity        | 1.0000     | 1.0000    | 0.0000            | 258.0000     |
-| your_proxy_v1   | 0.9200     | 0.9000    | 0.3500            | 185.5556     |
-| your_proxy_v2   | 0.8800     | 0.8500    | 0.5200            | 145.4118     |
+| System       | mean_score | pass_rate | compression_ratio | cost_of_pass |
+|--------------|------------|-----------|-------------------|--------------|
+| gpt35        | 0.8800     | 0.8500    | 0.0000            | 185.5556     |
+| gpt4         | 0.9500     | 0.9500    | 0.0000            | 258.0000     |
+| custom_proxy | 0.9200     | 0.9000    | 0.3500            | 145.4118     |
 ```
 
 ### Export results
@@ -220,7 +204,7 @@ Output:
 ```python
 result.to_json()          # JSON string
 result.to_dataframe()     # pandas DataFrame (requires pandas)
-result.filter(system="your_proxy_v2")  # filter to one system
+result.filter(system="gpt4")  # filter to one system
 ```
 
 ## Built-in datasets
