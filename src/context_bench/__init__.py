@@ -2,6 +2,7 @@
 
 from context_bench.results import EvalResult, EvalRow
 from context_bench.runner import evaluate
+from context_bench.systems.claude_cli import ClaudeCLI
 from context_bench.systems.openai_proxy import OpenAIProxy
 
-__all__ = ["evaluate", "EvalResult", "EvalRow", "OpenAIProxy"]
+__all__ = ["evaluate", "EvalResult", "EvalRow", "ClaudeCLI", "OpenAIProxy"]
