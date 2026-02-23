@@ -39,17 +39,30 @@ DATASET_LOADERS: dict[str, tuple[str, str]] = {
 }
 
 
+CONFIGURABLE_DATASETS: set[str] = {
+    "longbench", "infinitebench", "bbh",
+}
+
+
 def _load_dataset(name: str, max_examples: int | None) -> list[dict[str, Any]]:
     """Load a dataset by name or file path.
 
     If *name* matches a known dataset key, the corresponding loader is
     lazy-imported and called.  If it ends with ``.jsonl``, it's treated
     as a local file path.
+
+    Supports ``name:config`` syntax for multi-config datasets
+    (e.g. ``longbench:qasper``, ``bbh:causal_judgement``).
     """
     if name.endswith(".jsonl"):
         from context_bench.datasets.local import load_jsonl
 
         return load_jsonl(name, n=max_examples)
+
+    # Parse optional :config suffix
+    config = None
+    if ":" in name:
+        name, config = name.split(":", 1)
 
     if name not in DATASET_LOADERS:
         available = ", ".join(sorted(DATASET_LOADERS))
@@ -61,7 +74,17 @@ def _load_dataset(name: str, max_examples: int | None) -> list[dict[str, Any]]:
     module_path, func_name = DATASET_LOADERS[name]
     mod = importlib.import_module(module_path)
     loader = getattr(mod, func_name)
-    return loader(n=max_examples)
+
+    kwargs: dict[str, Any] = {"n": max_examples}
+    if config is not None:
+        if name not in CONFIGURABLE_DATASETS:
+            raise SystemExit(
+                f"Dataset {name!r} does not accept a :config suffix. "
+                f"Configurable datasets: {', '.join(sorted(CONFIGURABLE_DATASETS))}"
+            )
+        kwargs["config"] = config
+
+    return loader(**kwargs)
 
 
 def _derive_name(url: str) -> str:
@@ -81,7 +104,11 @@ def build_parser() -> argparse.ArgumentParser:
             "  context-bench --proxy http://localhost:7878 --dataset hotpotqa -n 50\n"
             "  context-bench --proxy http://localhost:7878 --proxy http://localhost:8787 "
             "--name kompact --name headroom --dataset hotpotqa --dataset gsm8k\n"
-            "  context-bench --proxy http://localhost:7878 --dataset ./my_data.jsonl --output json"
+            "  context-bench --proxy http://localhost:7878 --dataset longbench:qasper -n 20\n"
+            "  context-bench --proxy http://localhost:7878 --dataset ./my_data.jsonl --output json\n"
+            "\n"
+            "Multi-config datasets (longbench, infinitebench, bbh) accept a :config\n"
+            "suffix, e.g. --dataset bbh:causal_judgement"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -161,11 +188,11 @@ def main(argv: list[str] | None = None) -> None:
 
     # --- Load and concatenate datasets ---
     all_examples: list[dict[str, Any]] = []
-    for ds_name in args.dataset:
-        examples = _load_dataset(ds_name, max_examples=args.max_examples)
-        # Tag each example with its dataset source
+    for ds_spec in args.dataset:
+        examples = _load_dataset(ds_spec, max_examples=args.max_examples)
+        # Tag each example with its dataset source (including :config if given)
         for ex in examples:
-            ex.setdefault("dataset", ds_name)
+            ex.setdefault("dataset", ds_spec)
         all_examples.extend(examples)
 
     if not all_examples:
@@ -173,10 +200,16 @@ def main(argv: list[str] | None = None) -> None:
 
     # --- Set up evaluators and metrics ---
     from context_bench.evaluators.answer_quality import AnswerQuality
+    from context_bench.evaluators.rouge import SummarizationQuality
     from context_bench.metrics import CompressionRatio, CostOfPass, MeanScore, PassRate
     from context_bench.runner import evaluate
 
-    evaluators = [AnswerQuality()]
+    # Auto-add ROUGE-L evaluator when summarization datasets are present
+    summarization_datasets = {"meetingbank", "govreport"}
+    dataset_names = {spec.split(":")[0] for spec in args.dataset}
+    evaluators: list[Any] = [AnswerQuality()]
+    if dataset_names & summarization_datasets:
+        evaluators.append(SummarizationQuality())
     metrics = [
         MeanScore(score_field=args.score_field),
         PassRate(threshold=args.threshold, score_field=args.score_field),

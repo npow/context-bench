@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
+import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -350,52 +351,71 @@ class TestInfiniteBench:
         assert result[0]["answer"] == ""
 
 
+def _make_nolima_repo(tmpdir: str, needles: list[dict], haystack_text: str = "Line one.\nLine two.\nLine three.") -> None:
+    """Set up a fake NoLiMa repo structure in tmpdir."""
+    d = Path(tmpdir)
+    (d / "needlesets").mkdir()
+    (d / "haystack" / "rand_shuffle").mkdir(parents=True)
+    with open(d / "needlesets" / "needle_set.json", "w") as f:
+        json.dump(needles, f)
+    with open(d / "haystack" / "rand_shuffle" / "rand_book_1.txt", "w") as f:
+        f.write(haystack_text)
+
+
 class TestNoLiMa:
     def test_basic_load(self):
-        data = [
-            {"id": "n1", "haystack": "Long text...", "needle": "Key fact.", "question": "What is key?", "answer": "Key fact"},
-            {"id": "n2", "haystack": "Another text", "needle": "", "question": "What?", "answer": "Something"},
-        ]
+        needles = [{
+            "id": "0401",
+            "needle": "Actually, {CHAR} lives next to {1}.",
+            "questions": {"onehop": "Which character has been to {2}?"},
+            "character_set": ["Yuki", "Stuart"],
+            "tests": {
+                "T17_C02": {"input_args": ["the Kiasma museum", "Helsinki", "Uusimaa"]},
+                "T15_C02": {"input_args": ["the European Central Bank", "Frankfurt", "Germany"]},
+            },
+        }]
         with tempfile.TemporaryDirectory() as tmpdir:
-            json_file = Path(tmpdir) / "data.json"
-            with open(json_file, "w") as f:
-                json.dump(data, f)
+            _make_nolima_repo(tmpdir, needles)
 
             with mock.patch("huggingface_hub.snapshot_download", return_value=tmpdir):
                 from context_bench.datasets.longcontext import nolima
                 result = nolima()
 
         assert len(result) == 2
-        assert "Long text..." in result[0]["context"]
-        assert "Key fact." in result[0]["context"]
-        assert result[0]["answer"] == "Key fact"
-        # Second item has no needle, context should just be haystack
-        assert result[1]["context"] == "Another text"
+        # Check the expanded needle is in context
+        assert "Actually, Yuki lives next to the Kiasma museum." in result[0]["context"]
+        # Answer is the character name
+        assert result[0]["answer"] == "Yuki"
+        # Question template expanded: {2} -> args[1] = "Helsinki"
+        assert "Helsinki" in result[0]["question"]
+        # Haystack text is present
+        assert "Line one." in result[0]["context"]
 
     def test_n_limits(self):
-        data = [{"id": i, "haystack": "h", "needle": "n", "question": "q", "answer": "a"} for i in range(10)]
+        needles = [{
+            "id": f"n{i}",
+            "needle": "{CHAR} knows {1}.",
+            "questions": {"onehop": "Who knows {1}?"},
+            "character_set": ["Alice"],
+            "tests": {f"T{j}": {"input_args": [f"fact_{i}_{j}"]} for j in range(5)},
+        } for i in range(3)]
         with tempfile.TemporaryDirectory() as tmpdir:
-            json_file = Path(tmpdir) / "data.json"
-            with open(json_file, "w") as f:
-                json.dump(data, f)
+            _make_nolima_repo(tmpdir, needles)
 
             with mock.patch("huggingface_hub.snapshot_download", return_value=tmpdir):
                 from context_bench.datasets.longcontext import nolima
-                result = nolima(n=3)
+                result = nolima(n=4)
 
-        assert len(result) == 3
+        assert len(result) == 4
 
-    def test_jsonl_loading(self):
+    def test_missing_needle_set_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            jsonl_file = Path(tmpdir) / "data.jsonl"
-            with open(jsonl_file, "w") as f:
-                f.write(json.dumps({"id": 0, "haystack": "text", "needle": "key", "question": "q", "answer": "a"}) + "\n")
+            _make_nolima_repo(tmpdir, [])
 
             with mock.patch("huggingface_hub.snapshot_download", return_value=tmpdir):
                 from context_bench.datasets.longcontext import nolima
-                result = nolima()
-
-        assert len(result) == 1
+                with pytest.raises(FileNotFoundError, match="not found"):
+                    nolima(needle_set="nonexistent.json")
 
 
 class TestBBH:
@@ -459,6 +479,118 @@ class TestGovReport:
         assert result[0]["context"] == "The Department of Energy released..."
         assert result[0]["question"] == "Summarize the government report."
         assert result[0]["answer"] == "DOE report on energy policy."
+
+
+# ---------------------------------------------------------------------------
+# ROUGE-L evaluator
+# ---------------------------------------------------------------------------
+
+
+class TestRougeL:
+    def test_identical_strings(self):
+        from context_bench.evaluators.rouge import rouge_l
+        scores = rouge_l("the cat sat on the mat", "the cat sat on the mat")
+        assert scores["rouge_l_f1"] == pytest.approx(1.0)
+        assert scores["rouge_l_precision"] == pytest.approx(1.0)
+        assert scores["rouge_l_recall"] == pytest.approx(1.0)
+
+    def test_no_overlap(self):
+        from context_bench.evaluators.rouge import rouge_l
+        scores = rouge_l("hello world", "foo bar baz")
+        assert scores["rouge_l_f1"] == pytest.approx(0.0)
+
+    def test_partial_overlap(self):
+        from context_bench.evaluators.rouge import rouge_l
+        scores = rouge_l("the cat sat on the mat", "the cat on the mat")
+        # LCS = "the cat on the mat" (5 tokens)
+        # pred = 6 tokens, ref = 5 tokens
+        assert scores["rouge_l_recall"] == pytest.approx(1.0)
+        assert scores["rouge_l_precision"] == pytest.approx(5 / 6)
+        assert scores["rouge_l_f1"] > 0.9
+
+    def test_empty_prediction(self):
+        from context_bench.evaluators.rouge import rouge_l
+        scores = rouge_l("", "some reference text")
+        assert scores["rouge_l_f1"] == pytest.approx(0.0)
+
+    def test_empty_reference(self):
+        from context_bench.evaluators.rouge import rouge_l
+        scores = rouge_l("some prediction text", "")
+        assert scores["rouge_l_f1"] == pytest.approx(0.0)
+
+    def test_case_insensitive(self):
+        from context_bench.evaluators.rouge import rouge_l
+        scores = rouge_l("The Cat", "the cat")
+        assert scores["rouge_l_f1"] == pytest.approx(1.0)
+
+
+class TestSummarizationQuality:
+    def test_score_returns_rouge_keys(self):
+        from context_bench.evaluators.rouge import SummarizationQuality
+        evaluator = SummarizationQuality()
+        scores = evaluator.score(
+            {"answer": "The meeting covered Q4 results."},
+            {"response": "The meeting discussed Q4 results and outlook."},
+        )
+        assert "rouge_l_f1" in scores
+        assert "rouge_l_precision" in scores
+        assert "rouge_l_recall" in scores
+        assert scores["rouge_l_f1"] > 0
+
+    def test_empty_answer(self):
+        from context_bench.evaluators.rouge import SummarizationQuality
+        evaluator = SummarizationQuality()
+        scores = evaluator.score({"answer": ""}, {"response": "something"})
+        assert scores["rouge_l_f1"] == pytest.approx(1.0)
+
+    def test_empty_response(self):
+        from context_bench.evaluators.rouge import SummarizationQuality
+        evaluator = SummarizationQuality()
+        scores = evaluator.score({"answer": "something"}, {"response": ""})
+        assert scores["rouge_l_f1"] == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# CLI dataset:config parsing
+# ---------------------------------------------------------------------------
+
+
+class TestDatasetConfigParsing:
+    def test_config_suffix_parsed(self):
+        """dataset:config syntax is parsed and passed to loader."""
+        fake_data = [{"id": 0, "context": "ctx", "answer": "ans"}]
+        mock_loader = mock.MagicMock(return_value=fake_data)
+
+        with mock.patch("importlib.import_module") as mock_import:
+            mock_mod = mock.MagicMock()
+            mock_mod.longbench = mock_loader
+            mock_import.return_value = mock_mod
+
+            from context_bench.__main__ import _load_dataset
+            result = _load_dataset("longbench:qasper", max_examples=5)
+
+        mock_loader.assert_called_once_with(n=5, config="qasper")
+        assert result == fake_data
+
+    def test_non_configurable_dataset_rejects_config(self):
+        from context_bench.__main__ import _load_dataset
+        with pytest.raises(SystemExit, match="does not accept a :config suffix"):
+            _load_dataset("hotpotqa:something", max_examples=None)
+
+    def test_plain_dataset_no_config(self):
+        """Plain dataset name passes no config kwarg."""
+        fake_data = [{"id": 0, "context": "ctx", "answer": "ans"}]
+        mock_loader = mock.MagicMock(return_value=fake_data)
+
+        with mock.patch("importlib.import_module") as mock_import:
+            mock_mod = mock.MagicMock()
+            mock_mod.hotpotqa = mock_loader
+            mock_import.return_value = mock_mod
+
+            from context_bench.__main__ import _load_dataset
+            _load_dataset("hotpotqa", max_examples=10)
+
+        mock_loader.assert_called_once_with(n=10)
 
 
 # ---------------------------------------------------------------------------

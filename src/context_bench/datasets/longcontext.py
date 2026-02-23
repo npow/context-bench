@@ -109,10 +109,67 @@ def infinitebench(n: int | None = None, split: str = "longbook_qa_en") -> list[d
     return examples
 
 
-def nolima(n: int | None = None) -> list[dict[str, Any]]:
+def _nolima_expand(needle_cfg: dict, haystack_text: str) -> list[dict[str, Any]]:
+    """Expand a single NoLiMa needle config into concrete examples.
+
+    Each needle config has template placeholders ({CHAR}, {1}, {2}, …) and
+    multiple test cases.  We use the first character and the ``onehop``
+    question for each test, inserting the expanded needle into the haystack.
+    """
+    import random
+
+    needle_tpl = needle_cfg.get("needle", "")
+    questions = needle_cfg.get("questions", {})
+    question_tpl = questions.get("onehop", questions.get("twohop", ""))
+    characters = needle_cfg.get("character_set", [])
+    tests = needle_cfg.get("tests", {})
+    cfg_id = needle_cfg.get("id", "")
+
+    results = []
+    for test_id, test_data in tests.items():
+        args = test_data.get("input_args", [])
+        # Pick a deterministic character from the set
+        char = characters[0] if characters else "Alice"
+
+        # Expand needle template: {CHAR} -> character, {1},{2},… -> args
+        expanded_needle = needle_tpl.replace("{CHAR}", char)
+        for j, arg in enumerate(args, 1):
+            expanded_needle = expanded_needle.replace(f"{{{j}}}", arg)
+
+        # Expand question template
+        expanded_question = question_tpl.replace("{CHAR}", char)
+        for j, arg in enumerate(args, 1):
+            expanded_question = expanded_question.replace(f"{{{j}}}", arg)
+
+        # Insert needle at a random position in the haystack
+        rng = random.Random(hash(f"{cfg_id}_{test_id}"))
+        lines = haystack_text.split("\n")
+        insert_pos = rng.randint(0, max(len(lines) - 1, 0))
+        lines.insert(insert_pos, expanded_needle)
+        context = "\n".join(lines)
+
+        # The answer is the character name (the needle reveals info about CHAR)
+        results.append({
+            "id": f"{cfg_id}_{test_id}",
+            "context": context,
+            "question": expanded_question,
+            "answer": char,
+        })
+
+    return results
+
+
+def nolima(n: int | None = None, needle_set: str = "needle_set.json") -> list[dict[str, Any]]:
     """Load NoLiMa needle-in-a-haystack evaluation dataset.
 
     Downloads via snapshot_download (same pattern as bfcl_simple).
+    Expands needle templates with haystack text to produce concrete examples.
+
+    Args:
+        n: Maximum number of examples to return.
+        needle_set: Which needle set file to use from the ``needlesets/``
+            directory (default: ``needle_set.json``).
+
     Each example has: id, context, question, answer.
     """
     import json
@@ -126,41 +183,41 @@ def nolima(n: int | None = None) -> list[dict[str, Any]]:
     )
     snap = Path(local_dir)
 
-    data: list[dict] = []
-    for json_file in sorted(snap.glob("*.json")):
-        with open(json_file) as fh:
-            try:
-                content = json.load(fh)
-                if isinstance(content, list):
-                    data.extend(content)
-                elif isinstance(content, dict):
-                    data.append(content)
-            except json.JSONDecodeError:
-                continue
+    # Load needle set
+    needle_file = snap / "needlesets" / needle_set
+    if not needle_file.exists():
+        available = [f.name for f in (snap / "needlesets").glob("*.json")] if (snap / "needlesets").exists() else []
+        raise FileNotFoundError(
+            f"Needle set {needle_set!r} not found. Available: {available}"
+        )
 
-    # Also try jsonl files
-    for jsonl_file in sorted(snap.glob("*.jsonl")):
-        with open(jsonl_file) as fh:
-            for line in fh:
-                try:
-                    data.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
+    with open(needle_file) as fh:
+        needles = json.load(fh)
 
-    examples = []
-    for i, item in enumerate(data):
-        if n is not None and i >= n:
+    # Load first haystack book
+    haystack_text = ""
+    haystack_dir = snap / "haystack" / "rand_shuffle"
+    if haystack_dir.exists():
+        for txt_file in sorted(haystack_dir.glob("*.txt")):
+            with open(txt_file) as fh:
+                haystack_text = fh.read()
+            break  # Use only the first book
+
+    if not haystack_text:
+        # Fallback: try any .txt file in haystack/
+        for txt_file in sorted((snap / "haystack").rglob("*.txt")):
+            with open(txt_file) as fh:
+                haystack_text = fh.read()
             break
-        haystack = item.get("haystack", "")
-        needle = item.get("needle", "")
-        context = f"{haystack}\n{needle}" if needle else haystack
 
-        examples.append({
-            "id": item.get("id", i),
-            "context": context,
-            "question": item.get("question", item.get("query", "")),
-            "answer": item.get("answer", ""),
-        })
+    # Expand all needle configs into concrete examples
+    examples = []
+    for needle_cfg in needles:
+        expanded = _nolima_expand(needle_cfg, haystack_text)
+        for ex in expanded:
+            if n is not None and len(examples) >= n:
+                return examples
+            examples.append(ex)
 
     return examples
 
