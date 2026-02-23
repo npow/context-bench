@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys as _sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Iterable
@@ -19,8 +20,10 @@ def _process_example(
 ) -> EvalRow:
     """Process a single example through a system and score it.
 
-    This function is the unit of work for both sequential and concurrent
-    execution.
+    Handles both single-turn and multi-turn examples. Multi-turn examples
+    have a ``turns`` list of user messages; the system's
+    ``process_conversation()`` is called if available, otherwise ``process()``
+    is used with the turns embedded in the example.
     """
     example_id = example.get("id", index)
     dataset_tag = example.get("dataset", "")
@@ -30,11 +33,33 @@ def _process_example(
 
     # Process and time it
     t0 = time.monotonic()
-    processed = system.process(example)
+    is_multi_turn = example.get("multi_turn", False) and "turns" in example
+
+    if is_multi_turn and hasattr(system, "process_conversation"):
+        user_turns = example["turns"]
+        responses = system.process_conversation(user_turns)
+        # Final assistant response becomes "response"
+        final_response = responses[-1]["content"] if responses else ""
+        processed = {
+            **example,
+            "response": final_response,
+            "turn_responses": [r["content"] for r in responses],
+        }
+    else:
+        processed = system.process(example)
+
     latency = time.monotonic() - t0
 
     # Count output tokens
     output_tokens = count_tokens_dict(processed, text_fields=text_fields)
+
+    # Extract API usage if present
+    api_usage = processed.get("api_usage")
+    metadata: dict[str, Any] = {}
+    if api_usage and isinstance(api_usage, dict):
+        metadata["prompt_tokens"] = api_usage.get("prompt_tokens", 0)
+        metadata["completion_tokens"] = api_usage.get("completion_tokens", 0)
+        metadata["total_tokens"] = api_usage.get("total_tokens", 0)
 
     # Score with all evaluators
     scores: dict[str, float] = {}
@@ -48,7 +73,7 @@ def _process_example(
         scores=scores,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
-        metadata={},
+        metadata=metadata,
         latency=latency,
         dataset=dataset_tag,
     )
@@ -63,6 +88,7 @@ def evaluate(
     progress: bool = True,
     text_fields: list[str] | None = None,
     max_workers: int | None = None,
+    cache_dir: str | None = None,
 ) -> EvalResult:
     """Run evaluation: apply systems to dataset, score with evaluators, aggregate with metrics.
 
@@ -78,6 +104,8 @@ def evaluate(
         max_workers: Max threads for concurrent example processing. If None or
             1, examples are processed sequentially. Values > 1 use a
             ThreadPoolExecutor.
+        cache_dir: Directory for result caching. If provided, completed rows
+            are saved and reused on subsequent runs with the same configuration.
 
     Returns:
         EvalResult with per-row scores and summary statistics.
@@ -90,6 +118,22 @@ def evaluate(
     if max_examples is not None:
         examples = examples[:max_examples]
 
+    # Set up cache if requested
+    result_cache = None
+    if cache_dir is not None:
+        from context_bench.cache import ResultCache
+        result_cache = ResultCache(
+            cache_dir=cache_dir,
+            systems=[s.name for s in systems],
+            datasets=sorted({ex.get("dataset", "") for ex in examples}),
+            evaluators=[e.name for e in evaluators],
+        )
+        if result_cache.cached_count > 0 and progress:
+            print(
+                f"  Cache: {result_cache.cached_count} rows loaded from {result_cache.cache_path}",
+                file=_sys.stderr,
+            )
+
     rows: list[EvalRow] = []
     timing: dict[str, float] = {}
 
@@ -100,11 +144,13 @@ def evaluate(
 
         if use_concurrent:
             sys_rows = _run_concurrent(
-                system, examples, evaluators, text_fields, max_workers, progress,
+                system, examples, evaluators, text_fields, max_workers,
+                progress, result_cache,
             )
         else:
             sys_rows = _run_sequential(
                 system, examples, evaluators, text_fields, progress,
+                result_cache,
             )
 
         rows.extend(sys_rows)
@@ -139,17 +185,35 @@ def _run_sequential(
     evaluators: list[Any],
     text_fields: list[str] | None,
     progress: bool,
+    cache: Any | None,
 ) -> list[EvalRow]:
     """Process examples sequentially."""
     sys_rows: list[EvalRow] = []
+    cached = 0
     for i, example in enumerate(examples):
+        # Check cache
+        if cache is not None:
+            hit = cache.get(
+                system.name,
+                example.get("dataset", ""),
+                example.get("id", i),
+            )
+            if hit is not None:
+                sys_rows.append(hit)
+                cached += 1
+                continue
+
         row = _process_example(system, example, i, evaluators, text_fields)
         sys_rows.append(row)
 
+        # Save to cache
+        if cache is not None:
+            cache.put(row)
+
         if progress and (i + 1) % 10 == 0:
-            import sys as _sys
             print(
-                f"  {system.name}: {i + 1}/{len(examples)}",
+                f"  {system.name}: {i + 1}/{len(examples)}"
+                + (f" ({cached} cached)" if cached else ""),
                 file=_sys.stderr,
             )
     return sys_rows
@@ -162,35 +226,61 @@ def _run_concurrent(
     text_fields: list[str] | None,
     max_workers: int,
     progress: bool,
+    cache: Any | None,
 ) -> list[EvalRow]:
     """Process examples concurrently using ThreadPoolExecutor.
 
     Results are collected and sorted by original index to maintain
     deterministic ordering.
     """
-    # Map future -> original index for ordering
     results: dict[int, EvalRow] = {}
+    to_process: list[tuple[int, dict[str, Any]]] = []
+
+    # Check cache first
+    for i, example in enumerate(examples):
+        if cache is not None:
+            hit = cache.get(
+                system.name,
+                example.get("dataset", ""),
+                example.get("id", i),
+            )
+            if hit is not None:
+                results[i] = hit
+                continue
+        to_process.append((i, example))
+
+    if progress and results:
+        print(
+            f"  {system.name}: {len(results)} cached, {len(to_process)} to process",
+            file=_sys.stderr,
+        )
+
     completed = 0
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_idx = {}
-        for i, example in enumerate(examples):
-            future = executor.submit(
-                _process_example, system, example, i, evaluators, text_fields,
-            )
-            future_to_idx[future] = i
-
-        for future in as_completed(future_to_idx):
-            idx = future_to_idx[future]
-            results[idx] = future.result()
-            completed += 1
-
-            if progress and completed % 10 == 0:
-                import sys as _sys
-                print(
-                    f"  {system.name}: {completed}/{len(examples)}",
-                    file=_sys.stderr,
+    if to_process:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_idx = {}
+            for i, example in to_process:
+                future = executor.submit(
+                    _process_example, system, example, i, evaluators, text_fields,
                 )
+                future_to_idx[future] = i
+
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                row = future.result()
+                results[idx] = row
+                completed += 1
+
+                # Save to cache
+                if cache is not None:
+                    cache.put(row)
+
+                if progress and completed % 10 == 0:
+                    print(
+                        f"  {system.name}: {completed}/{len(to_process)}",
+                        file=_sys.stderr,
+                    )
 
     # Return in original order
     return [results[i] for i in range(len(examples))]

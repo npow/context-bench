@@ -176,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output",
-        choices=["table", "json"],
+        choices=["table", "json", "html"],
         default="table",
         help="Output format (default: table).",
     )
@@ -208,6 +208,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="N",
         help="Max concurrent threads per system (default: sequential).",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        metavar="DIR",
+        help="Directory for result caching. Enables resume on re-run.",
     )
 
     return parser
@@ -299,6 +305,7 @@ def main(argv: list[str] | None = None) -> None:
         metrics=metrics,
         progress=True,
         max_workers=args.max_workers,
+        cache_dir=args.cache_dir,
     )
 
     # --- Pareto ranking (cross-system, post-evaluation) ---
@@ -317,6 +324,10 @@ def main(argv: list[str] | None = None) -> None:
         from context_bench.reporters.json_out import to_json
 
         print(to_json(result))
+    elif args.output == "html":
+        from context_bench.reporters.html import to_html
+
+        print(to_html(result))
     else:
         from context_bench.reporters.markdown import to_markdown
 

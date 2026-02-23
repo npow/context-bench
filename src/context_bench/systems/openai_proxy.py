@@ -75,15 +75,54 @@ class OpenAIProxy:
             "messages": messages,
             **self._extra_body,
         }
-        content = self._post(body)
-        return {**example, "response": content}
+        content, usage = self._post(body)
+        result = {**example, "response": content}
+        if usage:
+            result["api_usage"] = usage
+        return result
+
+    def process_conversation(
+        self, turns: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
+        """Send a multi-turn conversation and collect all assistant responses.
+
+        Args:
+            turns: List of user-turn dicts ``{"role": "user", "content": ...}``.
+                Assistant responses from prior turns are inserted automatically.
+
+        Returns:
+            List of assistant-response dicts ``{"role": "assistant", "content": ...}``,
+            one per user turn.
+        """
+        history: list[dict[str, Any]] = []
+        if self._system_prompt is not None:
+            history.append({"role": "system", "content": self._system_prompt})
+
+        responses: list[dict[str, str]] = []
+        for turn in turns:
+            history.append(turn)
+            body: dict[str, Any] = {
+                "model": self._model,
+                "messages": list(history),
+                **self._extra_body,
+            }
+            content, _ = self._post(body)
+            assistant_msg = {"role": "assistant", "content": content}
+            history.append(assistant_msg)
+            responses.append(assistant_msg)
+
+        return responses
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
     def _messages(self, example: dict[str, Any]) -> list[dict[str, Any]]:
-        """Build the messages list for the chat completion request."""
+        """Build the messages list for the chat completion request.
+
+        Supports multi-turn examples via a ``turns`` field containing a list
+        of ``{"role": ..., "content": ...}`` dicts.
+        """
         if self._build_messages is not None:
             return self._build_messages(example)
 
@@ -91,6 +130,12 @@ class OpenAIProxy:
 
         if self._system_prompt is not None:
             messages.append({"role": "system", "content": self._system_prompt})
+
+        # Multi-turn: the example has a pre-built turns list
+        turns = example.get("turns")
+        if turns is not None:
+            messages.extend(turns)
+            return messages
 
         context = example.get("context", "")
         question = example.get("question")
@@ -105,8 +150,12 @@ class OpenAIProxy:
 
         return messages
 
-    def _post(self, body: dict[str, Any]) -> str:
-        """POST to the chat completions endpoint and return assistant content."""
+    def _post(self, body: dict[str, Any]) -> tuple[str, dict[str, int] | None]:
+        """POST to the chat completions endpoint.
+
+        Returns:
+            Tuple of (assistant_content, usage_dict_or_None).
+        """
         url = f"{self._base_url}/v1/chat/completions"
         data = json.dumps(body).encode()
 
@@ -132,12 +181,15 @@ class OpenAIProxy:
                 f"OpenAI proxy returned invalid JSON: {exc}"
             ) from exc
 
+        # Extract usage if present
+        usage = resp_data.get("usage")
+
         # Extract assistant content.
         try:
             choices = resp_data["choices"]
             if not choices:
                 raise RuntimeError("OpenAI proxy returned empty choices list")
-            return choices[0]["message"]["content"]
+            return choices[0]["message"]["content"], usage
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(
                 f"Unexpected response structure from OpenAI proxy: {resp_data}"
