@@ -77,6 +77,26 @@ context-bench --proxy http://localhost:7878 --dataset ./my_data.jsonl
 
 Known datasets: `hotpotqa`, `gsm8k`, `bfcl`, `apigen`, `swebench`, `swebench-verified`, `swebench-lite`.
 
+### Example output
+
+```
+$ context-bench \
+    --proxy http://localhost:9091 --name Baseline \
+    --proxy http://localhost:7878 --name Kompact \
+    --proxy http://localhost:7879 --name Headroom \
+    --dataset bfcl --model haiku --score-field contains
+
+# Evaluation Results
+
+| System   | mean_score | pass_rate | compression_ratio | cost_of_pass |
+|----------|-----------|-----------|-------------------|--------------|
+| Baseline | 0.2930    | 0.2930    | -0.3264           | 4,291        |
+| Kompact  | 0.3640    | 0.3640    | -0.1345           | 2,447        |
+| Headroom | 0.3140    | 0.3140    | -0.1793           | 3,815        |
+
+*1,431 examples evaluated*
+```
+
 ### Python API
 
 For full control, use the Python API directly:
