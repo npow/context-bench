@@ -150,6 +150,76 @@ def frames(n: int | None = None, split: str = "test") -> list[dict[str, Any]]:
     return examples
 
 
+def qasper(n: int | None = None, split: str = "validation") -> list[dict[str, Any]]:
+    """Load QASPer scientific paper QA dataset (full papers).
+
+    Reconstructs full paper text from title, abstract, and section paragraphs.
+    Uses the first answer text from each question's answer list.
+    Each example has: id, context, question, answer.
+    """
+    ds = _require_datasets()
+    dataset = ds.load_dataset("allenai/qasper", split=split)
+
+    examples = []
+    for item in dataset:
+        # Build full paper text
+        parts = []
+        title = item.get("title", "")
+        if title:
+            parts.append(title)
+        abstract = item.get("abstract", "")
+        if abstract:
+            parts.append(abstract)
+        for section in item.get("full_text", {}).get("section_name", []):
+            if section:
+                parts.append(section)
+        for para_list in item.get("full_text", {}).get("paragraphs", []):
+            if isinstance(para_list, list):
+                for para in para_list:
+                    if para:
+                        parts.append(para)
+            elif para_list:
+                parts.append(str(para_list))
+
+        full_text = "\n\n".join(parts)
+
+        # Each paper has multiple QA pairs
+        qas = item.get("qas", {})
+        questions = qas.get("question", [])
+        answers_list = qas.get("answers", [])
+
+        for q_idx, question in enumerate(questions):
+            if n is not None and len(examples) >= n:
+                break
+
+            # Extract first answer text
+            answer = ""
+            if q_idx < len(answers_list):
+                ans_obj = answers_list[q_idx]
+                ans_texts = ans_obj.get("answer", []) if isinstance(ans_obj, dict) else []
+                for a in ans_texts:
+                    if isinstance(a, dict):
+                        text = a.get("free_form_answer", "") or a.get("extractive_spans", [""])[0] if a.get("extractive_spans") else a.get("free_form_answer", "")
+                        if text:
+                            answer = str(text)
+                            break
+                    elif a:
+                        answer = str(a)
+                        break
+
+            examples.append({
+                "id": f"{item.get('id', '')}_{q_idx}",
+                "context": full_text,
+                "question": question,
+                "answer": answer,
+            })
+
+        if n is not None and len(examples) >= n:
+            break
+
+    return examples[:n] if n is not None else examples
+
+
 def quality(n: int | None = None, split: str = "validation") -> list[dict[str, Any]]:
     """Load QuALITY long-document multiple-choice QA dataset.
 

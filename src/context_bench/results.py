@@ -17,6 +17,8 @@ class EvalRow:
     input_tokens: int
     output_tokens: int
     metadata: dict[str, Any] = field(default_factory=dict)
+    latency: float = 0.0
+    dataset: str = ""
 
 
 @dataclass
@@ -57,8 +59,10 @@ class EvalResult:
             record = {
                 "system": row.system,
                 "example_id": row.example_id,
+                "dataset": row.dataset,
                 "input_tokens": row.input_tokens,
                 "output_tokens": row.output_tokens,
+                "latency": row.latency,
                 **row.scores,
                 **row.metadata,
             }
@@ -73,9 +77,11 @@ class EvalResult:
                     {
                         "system": r.system,
                         "example_id": r.example_id,
+                        "dataset": r.dataset,
                         "scores": r.scores,
                         "input_tokens": r.input_tokens,
                         "output_tokens": r.output_tokens,
+                        "latency": r.latency,
                         "metadata": r.metadata,
                     }
                     for r in self.rows

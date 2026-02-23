@@ -140,6 +140,11 @@ class TestDatasetResolution:
             "hotpotqa", "gsm8k", "bfcl", "apigen", "swebench", "swebench-verified", "swebench-lite",
             "natural-questions", "musique", "narrativeqa", "triviaqa", "frames", "quality",
             "longbench", "longbench-v2", "infinitebench", "nolima", "bbh", "meetingbank", "govreport",
+            "humaneval", "mbpp", "multi-news", "dialogsum", "qmsum", "summscreenfd",
+            "contract-nli", "scifact", "qasper",
+            "mmlu", "arc-challenge", "truthfulqa", "gpqa",
+            "drop", "math",
+            "ifeval",
         }
         assert set(DATASET_LOADERS.keys()) == expected
 

@@ -28,6 +28,29 @@ DATASET_LOADERS: dict[str, tuple[str, str]] = {
     "triviaqa": ("context_bench.datasets.qa", "triviaqa"),
     "frames": ("context_bench.datasets.qa", "frames"),
     "quality": ("context_bench.datasets.qa", "quality"),
+    # Code generation
+    "humaneval": ("context_bench.datasets.code", "humaneval"),
+    "mbpp": ("context_bench.datasets.code", "mbpp"),
+    # Summarization
+    "multi-news": ("context_bench.datasets.summarization", "multi_news"),
+    "dialogsum": ("context_bench.datasets.summarization", "dialogsum"),
+    "qmsum": ("context_bench.datasets.summarization", "qmsum"),
+    "summscreenfd": ("context_bench.datasets.summarization", "summscreenfd"),
+    # NLI / fact verification
+    "contract-nli": ("context_bench.datasets.nli", "contract_nli"),
+    "scifact": ("context_bench.datasets.nli", "scifact"),
+    # Scientific paper QA (full papers)
+    "qasper": ("context_bench.datasets.qa", "qasper"),
+    # Knowledge / multiple-choice
+    "mmlu": ("context_bench.datasets.knowledge", "mmlu"),
+    "arc-challenge": ("context_bench.datasets.knowledge", "arc_challenge"),
+    "truthfulqa": ("context_bench.datasets.knowledge", "truthfulqa"),
+    "gpqa": ("context_bench.datasets.knowledge", "gpqa"),
+    # Reasoning
+    "drop": ("context_bench.datasets.reasoning", "drop"),
+    "math": ("context_bench.datasets.reasoning", "math_dataset"),
+    # Instruction following
+    "ifeval": ("context_bench.datasets.ifeval", "ifeval"),
     # Long-context benchmarks
     "longbench": ("context_bench.datasets.longcontext", "longbench"),
     "longbench-v2": ("context_bench.datasets.longcontext", "longbench_v2"),
@@ -40,7 +63,7 @@ DATASET_LOADERS: dict[str, tuple[str, str]] = {
 
 
 CONFIGURABLE_DATASETS: set[str] = {
-    "longbench", "infinitebench", "bbh",
+    "longbench", "infinitebench", "bbh", "mmlu",
 }
 
 
@@ -168,6 +191,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.7,
         help="Pass/fail threshold for PassRate and CostOfPass (default: 0.7).",
     )
+    parser.add_argument(
+        "--judge-url",
+        default=None,
+        metavar="URL",
+        help="OpenAI-compatible URL for LLM-as-judge evaluation (optional).",
+    )
+    parser.add_argument(
+        "--judge-model",
+        default="gpt-4",
+        help="Model name for the LLM judge (default: gpt-4).",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Max concurrent threads per system (default: sequential).",
+    )
 
     return parser
 
@@ -201,21 +242,54 @@ def main(argv: list[str] | None = None) -> None:
     # --- Set up evaluators and metrics ---
     from context_bench.evaluators.answer_quality import AnswerQuality
     from context_bench.evaluators.rouge import SummarizationQuality
-    from context_bench.metrics import CompressionRatio, CostOfPass, MeanScore, PassRate
+    from context_bench.metrics import CompressionRatio, CostOfPass, Latency, MeanScore, PassRate, PerDatasetBreakdown
     from context_bench.runner import evaluate
 
     # Auto-add ROUGE-L evaluator when summarization datasets are present
-    summarization_datasets = {"meetingbank", "govreport"}
+    summarization_datasets = {
+        "meetingbank", "govreport", "multi-news", "dialogsum", "qmsum", "summscreenfd",
+    }
     dataset_names = {spec.split(":")[0] for spec in args.dataset}
     evaluators: list[Any] = [AnswerQuality()]
     if dataset_names & summarization_datasets:
         evaluators.append(SummarizationQuality())
+    # Auto-add multiple-choice evaluator
+    mc_datasets = {"mmlu", "arc-challenge", "gpqa"}
+    if dataset_names & mc_datasets:
+        from context_bench.evaluators.multiple_choice import MultipleChoiceAccuracy
+        evaluators.append(MultipleChoiceAccuracy())
+    # Auto-add code execution evaluator
+    code_datasets = {"humaneval", "mbpp"}
+    if dataset_names & code_datasets:
+        from context_bench.evaluators.code_execution import CodeExecution
+        evaluators.append(CodeExecution())
+    # Auto-add IFEval checker
+    if "ifeval" in dataset_names:
+        from context_bench.evaluators.ifeval_checker import IFEvalChecker
+        evaluators.append(IFEvalChecker())
+    # Auto-add math equivalence evaluator
+    math_datasets = {"math", "gsm8k"}
+    if dataset_names & math_datasets:
+        from context_bench.evaluators.math_equivalence import MathEquivalence
+        evaluators.append(MathEquivalence())
+    # Auto-add NLI label match evaluator
+    nli_datasets = {"contract-nli", "scifact"}
+    if dataset_names & nli_datasets:
+        from context_bench.evaluators.nli_label_match import NLILabelMatch
+        evaluators.append(NLILabelMatch())
+    if args.judge_url:
+        from context_bench.evaluators.llm_judge import LLMJudge
+        evaluators.append(LLMJudge(base_url=args.judge_url, model=args.judge_model))
     metrics = [
         MeanScore(score_field=args.score_field),
         PassRate(threshold=args.threshold, score_field=args.score_field),
         CompressionRatio(),
         CostOfPass(threshold=args.threshold, score_field=args.score_field),
+        Latency(),
     ]
+    # Add per-dataset breakdown when multiple datasets are requested
+    if len(args.dataset) > 1:
+        metrics.append(PerDatasetBreakdown(score_field=args.score_field))
 
     # --- Run evaluation ---
     result = evaluate(
@@ -224,7 +298,19 @@ def main(argv: list[str] | None = None) -> None:
         evaluators=evaluators,
         metrics=metrics,
         progress=True,
+        max_workers=args.max_workers,
     )
+
+    # --- Pareto ranking (cross-system, post-evaluation) ---
+    if len(systems) > 1:
+        from context_bench.metrics.token_stats import ParetoRank
+        pareto_ranks = ParetoRank.rank_systems(
+            result.summary,
+            quality_field="mean_score",
+            cost_field="cost_of_pass",
+        )
+        for sys_name, rank in pareto_ranks.items():
+            result.summary[sys_name]["pareto_rank"] = float(rank)
 
     # --- Output ---
     if args.output == "json":
