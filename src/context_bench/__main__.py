@@ -21,6 +21,21 @@ DATASET_LOADERS: dict[str, tuple[str, str]] = {
     "swebench": ("context_bench.datasets.agent_traces", "swebench"),
     "swebench-verified": ("context_bench.datasets.agent_traces", "swebench_verified"),
     "swebench-lite": ("context_bench.datasets.agent_traces", "swebench_lite"),
+    # QA datasets
+    "natural-questions": ("context_bench.datasets.qa", "natural_questions"),
+    "musique": ("context_bench.datasets.qa", "musique"),
+    "narrativeqa": ("context_bench.datasets.qa", "narrativeqa"),
+    "triviaqa": ("context_bench.datasets.qa", "triviaqa"),
+    "frames": ("context_bench.datasets.qa", "frames"),
+    "quality": ("context_bench.datasets.qa", "quality"),
+    # Long-context benchmarks
+    "longbench": ("context_bench.datasets.longcontext", "longbench"),
+    "longbench-v2": ("context_bench.datasets.longcontext", "longbench_v2"),
+    "infinitebench": ("context_bench.datasets.longcontext", "infinitebench"),
+    "nolima": ("context_bench.datasets.longcontext", "nolima"),
+    "bbh": ("context_bench.datasets.longcontext", "bbh"),
+    "meetingbank": ("context_bench.datasets.longcontext", "meetingbank"),
+    "govreport": ("context_bench.datasets.longcontext", "govreport"),
 }
 
 

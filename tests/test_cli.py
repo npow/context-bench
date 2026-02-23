@@ -136,7 +136,11 @@ class TestDeriveName:
 
 class TestDatasetResolution:
     def test_known_datasets_all_present(self):
-        expected = {"hotpotqa", "gsm8k", "bfcl", "apigen", "swebench", "swebench-verified", "swebench-lite"}
+        expected = {
+            "hotpotqa", "gsm8k", "bfcl", "apigen", "swebench", "swebench-verified", "swebench-lite",
+            "natural-questions", "musique", "narrativeqa", "triviaqa", "frames", "quality",
+            "longbench", "longbench-v2", "infinitebench", "nolima", "bbh", "meetingbank", "govreport",
+        }
         assert set(DATASET_LOADERS.keys()) == expected
 
     def test_unknown_dataset_raises(self):
