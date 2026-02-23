@@ -11,6 +11,15 @@ from context_bench.results import EvalResult, EvalRow
 from context_bench.utils.tokens import count_tokens_dict
 
 
+def _has_rich() -> bool:
+    """Check if rich is available for progress bars."""
+    try:
+        import rich  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _process_example(
     system: Any,
     example: dict[str, Any],
@@ -98,7 +107,8 @@ def evaluate(
         evaluators: Objects implementing the Evaluator protocol (.name, .score()).
         metrics: Optional list of Metric objects for aggregation.
         max_examples: Limit number of examples processed.
-        progress: Whether to print progress (simple stderr output).
+        progress: Whether to show progress. Uses ``rich`` progress bars when
+            available, falls back to plain stderr output.
         text_fields: Optional list of dict keys to count tokens for. If None,
             counts tokens in all string values.
         max_workers: Max threads for concurrent example processing. If None or
@@ -138,6 +148,7 @@ def evaluate(
     timing: dict[str, float] = {}
 
     use_concurrent = max_workers is not None and max_workers > 1
+    use_rich = progress and _has_rich()
 
     for system in systems:
         sys_start = time.monotonic()
@@ -145,12 +156,12 @@ def evaluate(
         if use_concurrent:
             sys_rows = _run_concurrent(
                 system, examples, evaluators, text_fields, max_workers,
-                progress, result_cache,
+                progress, use_rich, result_cache,
             )
         else:
             sys_rows = _run_sequential(
                 system, examples, evaluators, text_fields, progress,
-                result_cache,
+                use_rich, result_cache,
             )
 
         rows.extend(sys_rows)
@@ -185,37 +196,60 @@ def _run_sequential(
     evaluators: list[Any],
     text_fields: list[str] | None,
     progress: bool,
+    use_rich: bool,
     cache: Any | None,
 ) -> list[EvalRow]:
     """Process examples sequentially."""
     sys_rows: list[EvalRow] = []
     cached = 0
-    for i, example in enumerate(examples):
-        # Check cache
-        if cache is not None:
-            hit = cache.get(
-                system.name,
-                example.get("dataset", ""),
-                example.get("id", i),
-            )
-            if hit is not None:
-                sys_rows.append(hit)
-                cached += 1
-                continue
+    total = len(examples)
 
-        row = _process_example(system, example, i, evaluators, text_fields)
-        sys_rows.append(row)
+    if use_rich:
+        from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+        with Progress(
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeRemainingColumn(),
+            transient=True,
+        ) as pbar:
+            task = pbar.add_task(system.name, total=total)
+            for i, example in enumerate(examples):
+                if cache is not None:
+                    hit = cache.get(system.name, example.get("dataset", ""), example.get("id", i))
+                    if hit is not None:
+                        sys_rows.append(hit)
+                        cached += 1
+                        pbar.advance(task)
+                        continue
 
-        # Save to cache
-        if cache is not None:
-            cache.put(row)
+                row = _process_example(system, example, i, evaluators, text_fields)
+                sys_rows.append(row)
+                if cache is not None:
+                    cache.put(row)
+                pbar.advance(task)
+    else:
+        for i, example in enumerate(examples):
+            if cache is not None:
+                hit = cache.get(system.name, example.get("dataset", ""), example.get("id", i))
+                if hit is not None:
+                    sys_rows.append(hit)
+                    cached += 1
+                    continue
 
-        if progress and (i + 1) % 10 == 0:
-            print(
-                f"  {system.name}: {i + 1}/{len(examples)}"
-                + (f" ({cached} cached)" if cached else ""),
-                file=_sys.stderr,
-            )
+            row = _process_example(system, example, i, evaluators, text_fields)
+            sys_rows.append(row)
+            if cache is not None:
+                cache.put(row)
+
+            if progress and (i + 1) % 10 == 0:
+                print(
+                    f"  {system.name}: {i + 1}/{total}"
+                    + (f" ({cached} cached)" if cached else ""),
+                    file=_sys.stderr,
+                )
+
     return sys_rows
 
 
@@ -226,6 +260,7 @@ def _run_concurrent(
     text_fields: list[str] | None,
     max_workers: int,
     progress: bool,
+    use_rich: bool,
     cache: Any | None,
 ) -> list[EvalRow]:
     """Process examples concurrently using ThreadPoolExecutor.
@@ -239,25 +274,53 @@ def _run_concurrent(
     # Check cache first
     for i, example in enumerate(examples):
         if cache is not None:
-            hit = cache.get(
-                system.name,
-                example.get("dataset", ""),
-                example.get("id", i),
-            )
+            hit = cache.get(system.name, example.get("dataset", ""), example.get("id", i))
             if hit is not None:
                 results[i] = hit
                 continue
         to_process.append((i, example))
 
-    if progress and results:
+    if progress and results and not use_rich:
         print(
             f"  {system.name}: {len(results)} cached, {len(to_process)} to process",
             file=_sys.stderr,
         )
 
-    completed = 0
+    if not to_process:
+        return [results[i] for i in range(len(examples))]
 
-    if to_process:
+    if use_rich:
+        from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+        with Progress(
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeRemainingColumn(),
+            transient=True,
+        ) as pbar:
+            desc = system.name
+            if results:
+                desc += f" ({len(results)} cached)"
+            task = pbar.add_task(desc, total=len(to_process))
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_idx = {}
+                for i, example in to_process:
+                    future = executor.submit(
+                        _process_example, system, example, i, evaluators, text_fields,
+                    )
+                    future_to_idx[future] = i
+
+                for future in as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    row = future.result()
+                    results[idx] = row
+                    if cache is not None:
+                        cache.put(row)
+                    pbar.advance(task)
+    else:
+        completed = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_idx = {}
             for i, example in to_process:
@@ -271,11 +334,8 @@ def _run_concurrent(
                 row = future.result()
                 results[idx] = row
                 completed += 1
-
-                # Save to cache
                 if cache is not None:
                     cache.put(row)
-
                 if progress and completed % 10 == 0:
                     print(
                         f"  {system.name}: {completed}/{len(to_process)}",

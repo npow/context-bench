@@ -329,6 +329,86 @@ Evaluators are auto-wired based on the datasets you select — no manual configu
 | `IFEvalChecker` | IFEval | `ifeval_strict`, `ifeval_loose` (19 programmatic checks) |
 | `LLMJudge` | Any (via `--judge-url`) | `judge_score` (1-5 scale normalized to 0-1) |
 
+### Evaluator usage examples
+
+**AnswerQuality** — token-level F1 and exact match (SQuAD-style). Applied to every dataset by default:
+
+```python
+from context_bench.evaluators import AnswerQuality
+ev = AnswerQuality()
+ev.score({"answer": "Paris"}, {"response": "The capital is Paris."})
+# {'f1': 0.5, 'exact_match': 0.0, 'recall': 1.0, 'contains': 1.0}
+```
+
+**MultipleChoiceAccuracy** — extracts the chosen letter (A-J) from the response:
+
+```python
+from context_bench.evaluators import MultipleChoiceAccuracy
+ev = MultipleChoiceAccuracy()
+ev.score({"correct_letter": "B"}, {"response": "The answer is B."})
+# {'mc_accuracy': 1.0}
+```
+
+**MathEquivalence** — handles LaTeX normalization, fractions, percentages:
+
+```python
+from context_bench.evaluators import MathEquivalence
+ev = MathEquivalence()
+ev.score({"answer": r"\frac{1}{2}"}, {"response": "0.5"})
+# {'math_equiv': 1.0}
+ev.score({"answer": "42"}, {"response": r"The answer is $\boxed{42}$."})
+# {'math_equiv': 1.0}
+```
+
+**CodeExecution** — runs generated code against test cases in a subprocess:
+
+```python
+from context_bench.evaluators import CodeExecution
+ev = CodeExecution(timeout=10.0)
+ev.score(
+    {"context": "def add(a, b):\n", "test": "def check(c):\n    assert c(1,2)==3\n", "entry_point": "add"},
+    {"response": "    return a + b\n"},
+)
+# {'pass_at_1': 1.0}
+```
+
+**NLILabelMatch** — extracts classification labels with alias mapping:
+
+```python
+from context_bench.evaluators import NLILabelMatch
+ev = NLILabelMatch()
+ev.score({"answer": "Entailment"}, {"response": "Yes, this is true."})
+# {'nli_accuracy': 1.0}  ("yes" maps to "entailment")
+```
+
+**IFEvalChecker** — 19 programmatic checks (keywords, length, format, etc.):
+
+```python
+from context_bench.evaluators import IFEvalChecker
+ev = IFEvalChecker()
+ev.score(
+    {"instruction_id_list": ["punctuation:no_comma", "keywords:existence"],
+     "kwargs": [{}, {"keywords": ["hello"]}]},
+    {"response": "hello world"},
+)
+# {'ifeval_strict': 1.0, 'ifeval_loose': 1.0}
+```
+
+**LLMJudge** — uses an external LLM to rate responses 1-5:
+
+```bash
+# CLI: add --judge-url to enable
+context-bench --proxy http://localhost:7878 --dataset alpaca-eval \
+    --judge-url http://localhost:9090 --judge-model gpt-4
+```
+
+```python
+from context_bench.evaluators import LLMJudge
+judge = LLMJudge(base_url="http://localhost:9090", model="gpt-4")
+judge.score({"question": "What is 2+2?", "answer": "4"}, {"response": "The answer is 4."})
+# {'judge_score': 0.75}  (rating 4/5 → normalized to 0-1)
+```
+
 ## Built-in metrics (7)
 
 | Metric | What it measures |
@@ -342,6 +422,133 @@ Evaluators are auto-wired based on the datasets you select — no manual configu
 | `ParetoRank` | Rank on the quality-vs-cost Pareto frontier (auto-enabled for multi-system runs) |
 
 Utility functions: `f1_score`, `exact_match`, `recall_score` (SQuAD-standard text comparison).
+
+## Cookbook
+
+### Run a quick smoke test
+
+```bash
+# 10 examples, one dataset, table output
+context-bench --proxy http://localhost:7878 --dataset hotpotqa -n 10
+```
+
+### Full evaluation with LLM judge and caching
+
+```bash
+context-bench \
+  --proxy http://localhost:7878 --name my-system \
+  --dataset hotpotqa --dataset mmlu --dataset gsm8k \
+  --judge-url http://localhost:9090 \
+  --cache-dir .bench-cache/ \
+  --max-workers 8 \
+  --output html -n 200 > report.html
+```
+
+### Compare two systems on multiple-choice benchmarks
+
+```bash
+context-bench \
+  --proxy http://localhost:7878 --name kompact \
+  --proxy http://localhost:8787 --name baseline \
+  --dataset mmlu --dataset arc-challenge --dataset hellaswag \
+  --score-field mc_accuracy -n 100
+```
+
+### Benchmark code generation with execution
+
+```bash
+context-bench \
+  --proxy http://localhost:7878 \
+  --dataset humaneval --dataset mbpp \
+  --score-field pass_at_1 --threshold 1.0
+```
+
+### Evaluate math with LaTeX-aware scoring
+
+```bash
+context-bench \
+  --proxy http://localhost:7878 \
+  --dataset math --dataset gsm8k --dataset mgsm:en \
+  --score-field math_equiv
+```
+
+### Multi-turn conversation evaluation
+
+```bash
+context-bench \
+  --proxy http://localhost:7878 \
+  --dataset mt-bench \
+  --judge-url http://localhost:9090 \
+  --score-field judge_score
+```
+
+### Resume an interrupted run
+
+```bash
+# First run — gets interrupted after 500 examples
+context-bench --proxy http://localhost:7878 --dataset mmlu \
+  --cache-dir .cache/ -n 1000
+
+# Re-run — picks up where it left off
+context-bench --proxy http://localhost:7878 --dataset mmlu \
+  --cache-dir .cache/ -n 1000
+```
+
+### Multilingual evaluation
+
+```bash
+# German and Japanese math
+context-bench --proxy http://localhost:7878 \
+  --dataset mgsm:de --dataset mgsm:ja -n 50
+```
+
+### Custom system (Python API)
+
+```python
+from context_bench import evaluate
+from context_bench.evaluators import AnswerQuality, MathEquivalence
+from context_bench.metrics import MeanScore, Latency, PerDatasetBreakdown
+
+class MyCompressor:
+    name = "my-compressor"
+    def process(self, example):
+        compressed = my_compress(example["context"])  # your logic
+        return {**example, "context": compressed, "response": compressed}
+
+result = evaluate(
+    systems=[MyCompressor()],
+    dataset=my_data,
+    evaluators=[AnswerQuality(), MathEquivalence()],
+    metrics=[MeanScore(score_field="f1"), Latency(), PerDatasetBreakdown(score_field="f1")],
+    max_workers=4,
+    cache_dir=".cache/",
+)
+
+# Export
+print(result.to_json())
+df = result.to_dataframe()  # requires pandas
+```
+
+### Custom multi-turn system
+
+```python
+class MyMultiTurnSystem:
+    name = "my-chatbot"
+
+    def process(self, example):
+        return {**example, "response": call_my_api(example["context"])}
+
+    def process_conversation(self, turns):
+        """Called for multi_turn examples (e.g., MT-Bench)."""
+        history = []
+        responses = []
+        for turn in turns:
+            history.append(turn)
+            reply = call_my_api_with_history(history)
+            history.append({"role": "assistant", "content": reply})
+            responses.append({"role": "assistant", "content": reply})
+        return responses
+```
 
 ## Installation
 

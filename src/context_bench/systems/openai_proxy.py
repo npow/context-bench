@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Callable
@@ -30,6 +31,9 @@ class OpenAIProxy:
         timeout: HTTP request timeout in seconds.
         extra_body: Additional keys merged into the request body
             (e.g. ``{"temperature": 0, "max_tokens": 256}``).
+        max_retries: Number of retries on transient failures (HTTP 429/5xx,
+            connection errors). 0 disables retries.
+        retry_base_delay: Base delay in seconds for exponential backoff.
     """
 
     def __init__(
@@ -42,6 +46,8 @@ class OpenAIProxy:
         build_messages: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None,
         timeout: float = 30.0,
         extra_body: dict[str, Any] | None = None,
+        max_retries: int = 3,
+        retry_base_delay: float = 1.0,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
@@ -50,6 +56,8 @@ class OpenAIProxy:
         self._build_messages = build_messages
         self._timeout = timeout
         self._extra_body = extra_body or {}
+        self._max_retries = max_retries
+        self._retry_base_delay = retry_base_delay
 
         # Derive a default name from the host portion of the URL.
         if name is not None:
@@ -151,7 +159,10 @@ class OpenAIProxy:
         return messages
 
     def _post(self, body: dict[str, Any]) -> tuple[str, dict[str, int] | None]:
-        """POST to the chat completions endpoint.
+        """POST to the chat completions endpoint with retry on transient errors.
+
+        Retries on HTTP 429 (rate limit), 5xx (server errors), and connection
+        errors using exponential backoff.
 
         Returns:
             Tuple of (assistant_content, usage_dict_or_None).
@@ -163,34 +174,61 @@ class OpenAIProxy:
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        last_exc: Exception | None = None
 
-        try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
-                resp_data = json.loads(resp.read().decode())
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(
-                f"OpenAI proxy returned HTTP {exc.code}: {exc.reason}"
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(
-                f"Could not connect to OpenAI proxy at {url}: {exc.reason}"
-            ) from exc
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"OpenAI proxy returned invalid JSON: {exc}"
-            ) from exc
+        for attempt in range(1 + self._max_retries):
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                    resp_data = json.loads(resp.read().decode())
 
-        # Extract usage if present
-        usage = resp_data.get("usage")
+                # Extract usage if present
+                usage = resp_data.get("usage")
 
-        # Extract assistant content.
-        try:
-            choices = resp_data["choices"]
-            if not choices:
-                raise RuntimeError("OpenAI proxy returned empty choices list")
-            return choices[0]["message"]["content"], usage
-        except (KeyError, IndexError, TypeError) as exc:
-            raise RuntimeError(
-                f"Unexpected response structure from OpenAI proxy: {resp_data}"
-            ) from exc
+                # Extract assistant content.
+                try:
+                    choices = resp_data["choices"]
+                    if not choices:
+                        raise RuntimeError("OpenAI proxy returned empty choices list")
+                    return choices[0]["message"]["content"], usage
+                except (KeyError, IndexError, TypeError) as exc:
+                    raise RuntimeError(
+                        f"Unexpected response structure from OpenAI proxy: {resp_data}"
+                    ) from exc
+
+            except urllib.error.HTTPError as exc:
+                last_exc = exc
+                # Retry on rate limit (429) and server errors (5xx)
+                if exc.code in (429, 500, 502, 503, 504) and attempt < self._max_retries:
+                    delay = self._retry_base_delay * (2 ** attempt)
+                    # Respect Retry-After header if present
+                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                    if retry_after:
+                        try:
+                            delay = max(delay, float(retry_after))
+                        except ValueError:
+                            pass
+                    time.sleep(delay)
+                    continue
+                raise RuntimeError(
+                    f"OpenAI proxy returned HTTP {exc.code}: {exc.reason}"
+                ) from exc
+
+            except urllib.error.URLError as exc:
+                last_exc = exc
+                if attempt < self._max_retries:
+                    time.sleep(self._retry_base_delay * (2 ** attempt))
+                    continue
+                raise RuntimeError(
+                    f"Could not connect to OpenAI proxy at {url}: {exc.reason}"
+                ) from exc
+
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"OpenAI proxy returned invalid JSON: {exc}"
+                ) from exc
+
+        # Should not reach here, but just in case
+        raise RuntimeError(
+            f"Failed after {self._max_retries} retries: {last_exc}"
+        )
