@@ -108,3 +108,34 @@ def math_dataset(
         })
 
     return examples
+
+
+def mgsm(
+    n: int | None = None, config: str = "en", split: str = "test",
+) -> list[dict[str, Any]]:
+    """Load MGSM (Multilingual Grade School Math) dataset.
+
+    Supports language configs: bn, de, en, es, fr, ja, ru, sw, te, th, zh.
+    Each example has: id, context, question, answer.
+    """
+    ds = _require_datasets()
+    dataset = ds.load_dataset("juletxara/mgsm", config, split=split)
+
+    examples = []
+    for i, item in enumerate(dataset):
+        if n is not None and i >= n:
+            break
+
+        question = item.get("question", "")
+        # answer_number is the numeric answer
+        answer_number = item.get("answer_number", "")
+        answer = str(answer_number) if answer_number is not None else ""
+
+        examples.append({
+            "id": i,
+            "context": question,
+            "question": question,
+            "answer": answer,
+        })
+
+    return examples

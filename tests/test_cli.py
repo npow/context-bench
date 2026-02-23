@@ -143,8 +143,10 @@ class TestDatasetResolution:
             "humaneval", "mbpp", "multi-news", "dialogsum", "qmsum", "summscreenfd",
             "contract-nli", "scifact", "qasper",
             "mmlu", "arc-challenge", "truthfulqa", "gpqa",
-            "drop", "math",
-            "ifeval",
+            "hellaswag", "winogrande", "mmlu-pro",
+            "drop", "math", "mgsm",
+            "ifeval", "alpaca-eval",
+            "mt-bench",
         }
         assert set(DATASET_LOADERS.keys()) == expected
 

@@ -36,25 +36,25 @@ class MultipleChoiceAccuracy:
 
     @staticmethod
     def _extract_letter(response: str) -> str:
-        """Extract the chosen letter (A-D) from model response."""
+        """Extract the chosen letter (A-J) from model response."""
         text = response.strip()
 
         # Direct single letter
-        if len(text) == 1 and text.upper() in "ABCD":
+        if len(text) == 1 and text.upper() in "ABCDEFGHIJ":
             return text.upper()
 
         # "The answer is A" or "answer: B" pattern
-        m = re.search(r"(?:answer|choice)\s*(?:is|:)\s*([A-Da-d])", text, re.IGNORECASE)
+        m = re.search(r"(?:answer|choice)\s*(?:is|:)\s*([A-Ja-j])", text, re.IGNORECASE)
         if m:
             return m.group(1).upper()
 
         # Parenthesized: (A) or (B)
-        m = re.search(r"\(([A-Da-d])\)", text)
+        m = re.search(r"\(([A-Ja-j])\)", text)
         if m:
             return m.group(1).upper()
 
-        # Fallback: first A-D letter found
-        m = re.search(r"\b([A-Da-d])\b", text)
+        # Fallback: first A-J letter found as a standalone word
+        m = re.search(r"\b([A-Ja-j])\b", text)
         if m:
             return m.group(1).upper()
 

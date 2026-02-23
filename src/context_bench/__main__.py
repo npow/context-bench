@@ -51,6 +51,15 @@ DATASET_LOADERS: dict[str, tuple[str, str]] = {
     "math": ("context_bench.datasets.reasoning", "math_dataset"),
     # Instruction following
     "ifeval": ("context_bench.datasets.ifeval", "ifeval"),
+    "alpaca-eval": ("context_bench.datasets.instruction", "alpaca_eval"),
+    # Multi-turn
+    "mt-bench": ("context_bench.datasets.multi_turn", "mt_bench"),
+    # Additional knowledge / MC
+    "hellaswag": ("context_bench.datasets.knowledge", "hellaswag"),
+    "winogrande": ("context_bench.datasets.knowledge", "winogrande"),
+    "mmlu-pro": ("context_bench.datasets.knowledge", "mmlu_pro"),
+    # Multilingual reasoning
+    "mgsm": ("context_bench.datasets.reasoning", "mgsm"),
     # Long-context benchmarks
     "longbench": ("context_bench.datasets.longcontext", "longbench"),
     "longbench-v2": ("context_bench.datasets.longcontext", "longbench_v2"),
@@ -63,7 +72,7 @@ DATASET_LOADERS: dict[str, tuple[str, str]] = {
 
 
 CONFIGURABLE_DATASETS: set[str] = {
-    "longbench", "infinitebench", "bbh", "mmlu",
+    "longbench", "infinitebench", "bbh", "mmlu", "mgsm",
 }
 
 
@@ -260,7 +269,7 @@ def main(argv: list[str] | None = None) -> None:
     if dataset_names & summarization_datasets:
         evaluators.append(SummarizationQuality())
     # Auto-add multiple-choice evaluator
-    mc_datasets = {"mmlu", "arc-challenge", "gpqa"}
+    mc_datasets = {"mmlu", "arc-challenge", "gpqa", "hellaswag", "winogrande", "mmlu-pro"}
     if dataset_names & mc_datasets:
         from context_bench.evaluators.multiple_choice import MultipleChoiceAccuracy
         evaluators.append(MultipleChoiceAccuracy())
@@ -274,7 +283,7 @@ def main(argv: list[str] | None = None) -> None:
         from context_bench.evaluators.ifeval_checker import IFEvalChecker
         evaluators.append(IFEvalChecker())
     # Auto-add math equivalence evaluator
-    math_datasets = {"math", "gsm8k"}
+    math_datasets = {"math", "gsm8k", "mgsm"}
     if dataset_names & math_datasets:
         from context_bench.evaluators.math_equivalence import MathEquivalence
         evaluators.append(MathEquivalence())
