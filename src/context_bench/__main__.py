@@ -3,12 +3,14 @@
 Usage:
     context-bench --proxy http://localhost:7878 --dataset hotpotqa -n 50
     python -m context_bench --proxy http://localhost:7878 --dataset hotpotqa -n 50
+    context-bench memory --system naive --relay http://localhost:7878 --dataset locomo
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib
+import os
 import sys
 from typing import Any
 from urllib.parse import urlparse
@@ -126,25 +128,8 @@ def _derive_name(url: str) -> str:
     return host
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser."""
-    parser = argparse.ArgumentParser(
-        prog="context-bench",
-        description="Benchmark any system that transforms LLM context.",
-        epilog=(
-            "Examples:\n"
-            "  context-bench --proxy http://localhost:7878 --dataset hotpotqa -n 50\n"
-            "  context-bench --proxy http://localhost:7878 --proxy http://localhost:8787 "
-            "--name kompact --name headroom --dataset hotpotqa --dataset gsm8k\n"
-            "  context-bench --proxy http://localhost:7878 --dataset longbench:qasper -n 20\n"
-            "  context-bench --proxy http://localhost:7878 --dataset ./my_data.jsonl --output json\n"
-            "\n"
-            "Multi-config datasets (longbench, infinitebench, bbh) accept a :config\n"
-            "suffix, e.g. --dataset bbh:causal_judgement"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-
+def build_proxy_parser(parser: argparse.ArgumentParser) -> None:
+    """Add the original proxy-benchmark arguments to *parser*."""
     parser.add_argument(
         "--proxy",
         action="append",
@@ -173,8 +158,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model",
-        default="gpt-4",
-        help="Model name passed to the proxy (default: gpt-4).",
+        default="claude-haiku-4-5-20251001",
+        help="Model name passed to the proxy (default: claude-haiku-4-5-20251001).",
     )
     parser.add_argument(
         "-n",
@@ -208,8 +193,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--judge-model",
-        default="gpt-4",
-        help="Model name for the LLM judge (default: gpt-4).",
+        default="claude-haiku-4-5-20251001",
+        help="Model name for the LLM judge (default: claude-haiku-4-5-20251001).",
     )
     parser.add_argument(
         "--max-workers",
@@ -225,13 +210,369 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory for result caching. Enables resume on re-run.",
     )
 
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="context-bench",
+        description="Benchmark any system that transforms LLM context.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    subparsers = parser.add_subparsers(dest="subcommand")
+
+    # --- memory subcommand ---
+    memory_parser = subparsers.add_parser(
+        "memory",
+        help="Benchmark stateful memory systems on conversation datasets.",
+        description="Evaluate memory systems (naive, mem0, zep) on LoCoMo or LongMemEval.",
+        epilog=(
+            "Examples:\n"
+            "  context-bench memory --system naive --relay http://localhost:7878\n"
+            "  context-bench memory --system naive --system mem0 \\\n"
+            "    --relay http://localhost:7878 --dataset locomo -n 20\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    memory_parser.add_argument(
+        "--dataset",
+        action="append",
+        default=None,
+        metavar="DATASET",
+        help="Memory dataset to evaluate on: locomo or longmemeval (repeatable, default: locomo).",
+    )
+    memory_parser.add_argument(
+        "--system",
+        action="append",
+        required=True,
+        metavar="SYSTEM",
+        dest="systems",
+        help="Memory system to evaluate: naive, mem0, or zep (repeatable, at least one required).",
+    )
+    memory_parser.add_argument(
+        "--relay",
+        required=True,
+        metavar="URL",
+        help="OpenAI-compatible relay URL.",
+    )
+    memory_parser.add_argument(
+        "--model",
+        default="claude-haiku-4-5-20251001",
+        help="Model name (default: claude-haiku-4-5-20251001).",
+    )
+    memory_parser.add_argument(
+        "--api-key",
+        default=None,
+        metavar="KEY",
+        help="Bearer token (default: OPENAI_API_KEY env var).",
+    )
+    memory_parser.add_argument(
+        "-n",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Max conversations to evaluate (default: all).",
+    )
+    memory_parser.add_argument(
+        "--qa-types",
+        default=None,
+        metavar="TYPES",
+        help="Comma-separated QA types to filter, e.g. temporal,multi_hop (default: all).",
+    )
+    memory_parser.add_argument(
+        "--output",
+        choices=["table", "json", "html"],
+        default="table",
+        help="Output format (default: table).",
+    )
+    memory_parser.add_argument(
+        "--score-field",
+        default="f1",
+        help="Score field to report (default: f1).",
+    )
+    memory_parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for splits (default: 42).",
+    )
+
+    # --- legacy (no subcommand) arguments attached to the root parser ---
+    # We add them as a separate group so the original flat invocation still works.
+    _legacy = parser.add_argument_group(
+        "proxy benchmark (legacy, no subcommand)",
+        description=(
+            "Run the original proxy benchmark when no subcommand is given.\n"
+            "Example: context-bench --proxy http://localhost:7878 --dataset hotpotqa"
+        ),
+    )
+    _legacy.add_argument(
+        "--proxy",
+        action="append",
+        default=None,
+        metavar="URL",
+        help="OpenAI-compatible proxy URL (repeatable).",
+    )
+    _legacy.add_argument(
+        "--name",
+        action="append",
+        default=None,
+        metavar="NAME",
+        help="Display name for the corresponding --proxy. Auto-derived from URL if omitted.",
+    )
+    _legacy.add_argument(
+        "--dataset",
+        action="append",
+        default=None,
+        metavar="NAME_OR_PATH",
+        help=(
+            f"Dataset to benchmark against (repeatable). "
+            f"Known: {', '.join(sorted(DATASET_LOADERS))}. "
+            "Or a path to a .jsonl file."
+        ),
+    )
+    _legacy.add_argument(
+        "--model",
+        default="claude-haiku-4-5-20251001",
+        help="Model name passed to the proxy (default: claude-haiku-4-5-20251001).",
+    )
+    _legacy.add_argument(
+        "-n",
+        "--max-examples",
+        type=int,
+        default=None,
+        help="Max examples per dataset (default: all).",
+    )
+    _legacy.add_argument(
+        "--output",
+        choices=["table", "json", "html"],
+        default="table",
+        help="Output format (default: table).",
+    )
+    _legacy.add_argument(
+        "--score-field",
+        default="f1",
+        help="Score field from AnswerQuality to use as primary score (default: f1).",
+    )
+    _legacy.add_argument(
+        "--threshold",
+        type=float,
+        default=0.7,
+        help="Pass/fail threshold for PassRate and CostOfPass (default: 0.7).",
+    )
+    _legacy.add_argument(
+        "--judge-url",
+        default=None,
+        metavar="URL",
+        help="OpenAI-compatible URL for LLM-as-judge evaluation (optional).",
+    )
+    _legacy.add_argument(
+        "--judge-model",
+        default="claude-haiku-4-5-20251001",
+        help="Model name for the LLM judge (default: claude-haiku-4-5-20251001).",
+    )
+    _legacy.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Max concurrent threads per system (default: sequential).",
+    )
+    _legacy.add_argument(
+        "--cache-dir",
+        default=None,
+        metavar="DIR",
+        help="Directory for result caching. Enables resume on re-run.",
+    )
+
     return parser
+
+
+# ---------------------------------------------------------------------------
+# memory subcommand helpers
+# ---------------------------------------------------------------------------
+
+_MEMORY_DATASETS = {"locomo", "longmemeval"}
+
+
+def _load_memory_dataset(
+    name: str,
+    n: int | None,
+    qa_types: list[str] | None,
+    seed: int,
+) -> list[dict[str, Any]]:
+    """Load a memory benchmark dataset by name."""
+    if name not in _MEMORY_DATASETS:
+        raise SystemExit(
+            f"Unknown memory dataset {name!r}. Available: {', '.join(sorted(_MEMORY_DATASETS))}"
+        )
+    from context_bench.datasets.memory import locomo, longmemeval
+
+    if name == "locomo":
+        return locomo(n=n, qa_types=qa_types)
+    else:
+        return longmemeval(n=n, question_types=qa_types)
+
+
+def _build_memory_system(system_name: str, relay: str, model: str, api_key: str | None) -> Any:
+    """Instantiate a memory system by name."""
+    if system_name == "naive":
+        from context_bench.systems.naive_memory import NaiveMemorySystem
+        return NaiveMemorySystem(base_url=relay, model=model, api_key=api_key)
+    elif system_name == "mem0":
+        try:
+            from context_bench.systems.mem0_system import Mem0System
+            return Mem0System(relay_url=relay, model=model, api_key=api_key)
+        except ImportError as exc:
+            raise SystemExit(
+                "mem0 system requires the mem0ai package. "
+                "Install it with: pip install context-bench[mem0]\n"
+                f"(original error: {exc})"
+            ) from exc
+    elif system_name == "zep":
+        try:
+            from context_bench.systems.zep_system import ZepSystem
+            return ZepSystem(relay_url=relay, model=model, api_key=api_key)
+        except ImportError as exc:
+            raise SystemExit(
+                "zep system requires graphiti-core. "
+                "Install it with: pip install context-bench[zep]\n"
+                f"(original error: {exc})"
+            ) from exc
+    else:
+        raise SystemExit(
+            f"Unknown memory system {system_name!r}. Available: naive, mem0, zep"
+        )
+
+
+def _render_per_qa_type_table(result: Any, score_field: str) -> str:
+    """Render a per-QA-type breakdown table in markdown."""
+    systems = list(result.summary.keys())
+    if not systems:
+        return ""
+
+    # Collect per-QA-type keys (those matching {score_field}_{type})
+    prefix = f"{score_field}_"
+    qa_type_keys: list[str] = []
+    for sys_metrics in result.summary.values():
+        for key in sys_metrics:
+            if key.startswith(prefix) and key != f"{score_field}_mean" and key not in qa_type_keys:
+                qa_type_keys.append(key)
+    qa_type_keys.sort()
+
+    if not qa_type_keys:
+        return ""
+
+    lines: list[str] = []
+    lines.append("\n## Per-QA-Type Breakdown\n")
+    header = "| System | " + " | ".join(k[len(prefix):] for k in qa_type_keys) + " |"
+    sep = "|--------|" + "|".join("-" * (len(k[len(prefix):]) + 2) for k in qa_type_keys) + "|"
+    lines.append(header)
+    lines.append(sep)
+    for system in systems:
+        values = []
+        for key in qa_type_keys:
+            v = result.summary[system].get(key)
+            if v is None:
+                values.append("—")
+            else:
+                values.append(f"{v:.4f}")
+        lines.append(f"| {system} | " + " | ".join(values) + " |")
+    return "\n".join(lines)
+
+
+def _run_memory_subcommand(args: argparse.Namespace) -> None:
+    """Execute the `memory` subcommand."""
+    # Resolve api_key
+    api_key: str | None = args.api_key or os.environ.get("OPENAI_API_KEY") or None
+
+    # Resolve datasets (default: locomo)
+    dataset_names: list[str] = args.dataset or ["locomo"]
+
+    # Parse qa_types
+    qa_types: list[str] | None = None
+    if args.qa_types:
+        qa_types = [t.strip() for t in args.qa_types.split(",") if t.strip()]
+
+    # Load and merge all requested datasets
+    all_examples: list[dict[str, Any]] = []
+    for ds_name in dataset_names:
+        examples = _load_memory_dataset(ds_name, n=args.n, qa_types=qa_types, seed=args.seed)
+        all_examples.extend(examples)
+
+    if not all_examples:
+        raise SystemExit("No examples loaded. Check your --dataset and --qa-types arguments.")
+
+    # Build systems
+    systems = [
+        _build_memory_system(s, relay=args.relay, model=args.model, api_key=api_key)
+        for s in args.systems
+    ]
+
+    # Build evaluators
+    from context_bench.evaluators import AnswerQuality, MemoryJudge
+    evaluators: list[Any] = [
+        AnswerQuality(),
+        MemoryJudge(base_url=args.relay, model=args.model),
+    ]
+
+    # Build metrics
+    from context_bench.metrics.per_qa_type import PerQATypeMetric
+    from context_bench.metrics.token_efficiency import TokenEfficiencyMetric
+    metrics: list[Any] = [
+        PerQATypeMetric(score_field=args.score_field),
+        TokenEfficiencyMetric(score_field=args.score_field),
+    ]
+
+    # Run evaluation
+    from context_bench.memory_runner import evaluate_memory
+    result = evaluate_memory(
+        systems=systems,
+        dataset=all_examples,
+        evaluators=evaluators,
+        metrics=metrics,
+        max_examples=args.n,
+        progress=True,
+    )
+
+    # Output
+    if args.output == "json":
+        from context_bench.reporters.json_out import to_json
+        print(to_json(result))
+    elif args.output == "html":
+        from context_bench.reporters.html import to_html
+        print(to_html(result))
+    else:
+        from context_bench.reporters.markdown import to_markdown
+        print(to_markdown(result))
+        print(_render_per_qa_type_table(result, args.score_field))
+
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # Dispatch to memory subcommand
+    if args.subcommand == "memory":
+        _run_memory_subcommand(args)
+        return
+
+    # Legacy proxy-benchmark path (no subcommand given)
+    if not args.proxy:
+        parser.error(
+            "the following arguments are required when no subcommand is given: --proxy\n"
+            "Run 'context-bench memory --help' to see the memory subcommand."
+        )
+    if not args.dataset:
+        parser.error(
+            "the following arguments are required when no subcommand is given: --dataset"
+        )
 
     # --- Build proxy systems ---
     from context_bench.systems.openai_proxy import OpenAIProxy
@@ -264,32 +605,32 @@ def main(argv: list[str] | None = None) -> None:
     summarization_datasets = {
         "meetingbank", "govreport", "multi-news", "dialogsum", "qmsum", "summscreenfd",
     }
-    dataset_names = {spec.split(":")[0] for spec in args.dataset}
+    dataset_names_set = {spec.split(":")[0] for spec in args.dataset}
     evaluators: list[Any] = [AnswerQuality()]
-    if dataset_names & summarization_datasets:
+    if dataset_names_set & summarization_datasets:
         evaluators.append(SummarizationQuality())
     # Auto-add multiple-choice evaluator
     mc_datasets = {"mmlu", "arc-challenge", "gpqa", "hellaswag", "winogrande", "mmlu-pro"}
-    if dataset_names & mc_datasets:
+    if dataset_names_set & mc_datasets:
         from context_bench.evaluators.multiple_choice import MultipleChoiceAccuracy
         evaluators.append(MultipleChoiceAccuracy())
     # Auto-add code execution evaluator
     code_datasets = {"humaneval", "mbpp"}
-    if dataset_names & code_datasets:
+    if dataset_names_set & code_datasets:
         from context_bench.evaluators.code_execution import CodeExecution
         evaluators.append(CodeExecution())
     # Auto-add IFEval checker
-    if "ifeval" in dataset_names:
+    if "ifeval" in dataset_names_set:
         from context_bench.evaluators.ifeval_checker import IFEvalChecker
         evaluators.append(IFEvalChecker())
     # Auto-add math equivalence evaluator
     math_datasets = {"math", "gsm8k", "mgsm"}
-    if dataset_names & math_datasets:
+    if dataset_names_set & math_datasets:
         from context_bench.evaluators.math_equivalence import MathEquivalence
         evaluators.append(MathEquivalence())
     # Auto-add NLI label match evaluator
     nli_datasets = {"contract-nli", "scifact"}
-    if dataset_names & nli_datasets:
+    if dataset_names_set & nli_datasets:
         from context_bench.evaluators.nli_label_match import NLILabelMatch
         evaluators.append(NLILabelMatch())
     if args.judge_url:

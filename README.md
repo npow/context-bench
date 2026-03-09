@@ -590,7 +590,104 @@ src/context_bench/
 ├── evaluators/          # 8 evaluators (answer quality, MC, code exec, math, NLI, IFEval, ROUGE, LLM judge)
 ├── metrics/             # 7 metrics (mean, pass rate, compression, cost, latency, per-dataset, Pareto)
 ├── reporters/           # Markdown, JSON, and HTML output formatters
+├── loop/
+│   └── mutator.py       # LLM-driven pipeline mutator for autoresearch
 └── utils/tokens.py      # Pluggable tokenizer (default: tiktoken cl100k_base)
+
+pipeline/                # Standalone pipeline files (used by autoresearch loop)
+├── entity_pipeline.py   # Structured entity-fact pipeline (~19% F1 baseline)
+└── sota_pipeline.py     # Near-SOTA pipeline: coreference + triples + temporal ranking
+```
+
+---
+
+## Autoresearch loop (LoCoMo benchmark)
+
+context-bench includes an **autoresearch loop** that uses Claude to iteratively improve a retrieval pipeline on the [LoCoMo](https://huggingface.co/datasets/snap-research/LoCoMo) long-conversation QA benchmark.
+
+**SOTA target:** 90% F1 (Hindsight + Gemini-3 Pro + TEMPR, Dec 2025)
+
+### How it works
+
+1. Start from a strong baseline pipeline (`sota_pipeline.py`)
+2. An LLM (Claude Sonnet) reads the current pipeline source + score history
+3. It proposes one **architectural improvement** (coreference resolution, temporal ranking, multi-hop retrieval, etc.)
+4. The new pipeline is evaluated on 2 held-out LoCoMo conversations (10 QA pairs)
+5. If F1 improves, the new pipeline becomes the baseline — otherwise revert
+6. Repeat for N iterations
+
+### Running the loop
+
+```bash
+# Start the relay (OpenAI-compatible Claude proxy)
+cd /path/to/claude-relay
+uv run agent-relay serve --port 18082 --max-concurrent 16
+
+# Run the autoresearch loop
+uv run python3 loop.py \
+  --relay http://localhost:18082 \
+  --model sonnet \
+  --dataset locomo \
+  --iterations 50 \
+  --eval-n 2 \
+  --max-qa-per-conv 5 \
+  --seed 42 \
+  --output-dir loop_results_v6/ \
+  --pipeline-path src/context_bench/pipeline/sota_pipeline.py
+
+# Resume after a crash
+uv run python3 loop.py ... --resume
+```
+
+### loop.py flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--relay URL` | *(required)* | OpenAI-compatible relay URL |
+| `--model NAME` | `sonnet` | Model for both mutation and answering |
+| `--dataset NAME` | `locomo` | Dataset to optimize on |
+| `--iterations N` | `50` | Max mutation iterations |
+| `--eval-n N` | `2` | Number of conversations to evaluate per iteration |
+| `--max-qa-per-conv N` | `5` | QA pairs sampled per conversation |
+| `--seed N` | `42` | Random seed for reproducible splits |
+| `--output-dir DIR` | *(required)* | Directory for results, checkpoints, logs |
+| `--pipeline-path PATH` | *(required)* | Starting pipeline `.py` file |
+| `--resume` | `False` | Resume from last checkpoint in `--output-dir` |
+
+### Overnight watchdog
+
+Use the watchdog scripts to keep the loop running unattended:
+
+```bash
+bash watchdog6.sh   # starts loop + relay, monitors for crashes/stalls
+```
+
+The watchdog checks every 10 minutes and restarts the loop with `--resume` if it crashes or stalls for >150 minutes.
+
+### Starting pipelines
+
+**`sota_pipeline.py`** — near-SOTA baseline implementing:
+- **Coreference resolution**: pronouns/aliases → canonical entity names during ingest
+- **Typed entity-relation-value triples**: `(entity, relation, value, turn_idx)` for precise lookup
+- **Entity profiles**: per-entity aggregate of all known facts, sorted by recency
+- **Query decomposition**: multi-part questions split into sub-questions
+- **Multi-hop retrieval**: extract entities from question, retrieve profiles, reason across them
+- **Temporal ranking**: "current" questions prefer recent facts; "used to" questions prefer old facts
+- **Embedding fallback**: `all-MiniLM-L6-v2` semantic search when entity lookup is thin
+
+**`entity_pipeline.py`** — simpler STRATEGY-based pipeline (~19% F1) used in earlier runs.
+
+### Output files
+
+```
+loop_results_v6/
+├── run.log              # full loop stdout (progress + scores)
+├── watchdog.log         # watchdog heartbeat + restart events
+├── relay.log            # relay server stdout
+├── loop.pid             # PID of running loop process
+├── loop_log.jsonl       # checkpoint: every iteration's score, mutation, accepted flag
+├── baseline_score.json  # cached baseline to skip re-evaluation on restart
+└── context_pipeline.py  # current best pipeline (updated when a mutation is accepted)
 ```
 
 ## CI/CD

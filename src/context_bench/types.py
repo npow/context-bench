@@ -40,3 +40,40 @@ class Metric(Protocol):
     def name(self) -> str: ...
 
     def compute(self, rows: list[EvalRow]) -> dict[str, float]: ...
+
+
+@runtime_checkable
+class MemorySystem(Protocol):
+    """A stateful memory system evaluated over conversation histories.
+
+    The runner calls reset() between conversations, ingest() to load the
+    conversation history, then query() for each QA pair.  Implementations
+    point their internal LLM calls at whatever relay/proxy they already use.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    def reset(self) -> None:
+        """Clear all stored memory.  Called once before each conversation."""
+        ...
+
+    def ingest(self, turns: list[dict[str, Any]]) -> None:
+        """Store a conversation history.
+
+        Args:
+            turns: List of ``{"role": "user"|"assistant", "content": str}``
+                dicts in chronological order.
+        """
+        ...
+
+    def query(self, question: str) -> str:
+        """Answer a question using stored memory.
+
+        Args:
+            question: Natural-language question about the conversation.
+
+        Returns:
+            The system's answer string.
+        """
+        ...

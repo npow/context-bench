@@ -33,6 +33,7 @@ classifiers = [
 
 dependencies = [
     "tiktoken>=0.5.0",
+    "sentence-transformers>=3.0.0",
 ]
 
 [project.scripts]
@@ -49,6 +50,8 @@ datasets = [
     "huggingface-hub>=0.16.0",
 ]
 rich = ["rich>=13.0.0"]
+mem0 = ["mem0ai>=0.1.0"]
+zep = ["zep-python>=2.0.0"]
 all = [
     "context-bench[datasets,rich]",
 ]
@@ -64,3 +67,7 @@ packages = ["src/context_bench"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true

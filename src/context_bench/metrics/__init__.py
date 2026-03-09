@@ -3,7 +3,9 @@
 from context_bench.metrics.cost_of_pass import CostOfPass
 from context_bench.metrics.latency import Latency
 from context_bench.metrics.per_dataset import PerDatasetBreakdown
+from context_bench.metrics.per_qa_type import PerQATypeMetric
 from context_bench.metrics.quality import MeanScore, PassRate
+from context_bench.metrics.token_efficiency import TokenEfficiencyMetric
 from context_bench.metrics.token_stats import CompressionRatio, ParetoRank
 
 __all__ = [
@@ -14,4 +16,6 @@ __all__ = [
     "ParetoRank",
     "PassRate",
     "PerDatasetBreakdown",
+    "PerQATypeMetric",
+    "TokenEfficiencyMetric",
 ]

@@ -29,7 +29,7 @@ class TestArgParsing:
         args = parser.parse_args(["--proxy", "http://localhost:7878", "--dataset", "hotpotqa"])
         assert args.proxy == ["http://localhost:7878"]
         assert args.dataset == ["hotpotqa"]
-        assert args.model == "gpt-4"
+        assert args.model == "claude-haiku-4-5-20251001"
         assert args.max_examples is None
         assert args.output == "table"
         assert args.score_field == "f1"
@@ -103,14 +103,15 @@ class TestArgParsing:
         assert args.threshold == 0.5
 
     def test_missing_proxy_exits(self):
-        parser = build_parser()
+        # Validation of missing --proxy happens in main(), not parse_args(),
+        # because the parser now supports subcommands (subparsers make root
+        # args optional at parse time).
         with pytest.raises(SystemExit):
-            parser.parse_args(["--dataset", "hotpotqa"])
+            main(["--dataset", "hotpotqa"])
 
     def test_missing_dataset_exits(self):
-        parser = build_parser()
         with pytest.raises(SystemExit):
-            parser.parse_args(["--proxy", "http://localhost:7878"])
+            main(["--proxy", "http://localhost:7878"])
 
 
 # ---------------------------------------------------------------------------
