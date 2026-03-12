@@ -119,8 +119,28 @@ class PipelineMutator:
             {"role": "user", "content": user_prompt},
         ]
 
-        response = self._chat(messages)
-        return self._extract_code(response)
+        last_error: Exception | None = None
+        for attempt in range(3):
+            if attempt > 0:
+                # Feed the syntax error back so the LLM can fix it
+                fix_prompt = (
+                    f"The code you returned has a syntax error: {last_error}\n"
+                    "Return the complete corrected Python file. No markdown, no explanation."
+                )
+                messages = messages[:2] + [
+                    {"role": "assistant", "content": response},
+                    {"role": "user", "content": fix_prompt},
+                ]
+            response = self._chat(messages)
+            code = self._extract_code(response)
+            try:
+                compile(code, "<proposed_pipeline>", "exec")
+                return code
+            except SyntaxError as e:
+                last_error = e
+                continue
+
+        raise RuntimeError(f"Generated code has syntax errors after 3 attempts: {last_error}")
 
     # ------------------------------------------------------------------
     # Prompt construction
@@ -131,52 +151,58 @@ class PipelineMutator:
 You are a research engineer with one goal: surpass state-of-the-art performance \
 on the LoCoMo long-conversation QA benchmark.
 
-CURRENT SOTA BEST: 90% F1 (Hindsight with Gemini-3 Pro + TEMPR, Dec 2025)
-YOUR TARGET: exceed 0.90 F1. Current pipeline is far below — every iteration must make \
-a meaningful architectural advance, not a minor tweak.
+## Known empirical reference points (LLM-judge accuracy, adversarial excluded):
+- Naive RAG (BM25/embedding over raw turns): ~0.30
+- Full conversation in Claude Sonnet context window (no retrieval): ~0.60
+- Entity triples + coreference + temporal ranking (sota_pipeline): ~0.50
+- MemMachine (episodic memory + timestamped episodes + expand_context=3): ~0.75
+- SOTA: Hindsight + Gemini-3 Pro + TEMPR: 0.90
 
-You will be given the full source of a pipeline file and a history of past iterations. \
-Propose ONE significant improvement that moves F1 substantially higher.
+YOUR TARGET: exceed 0.75 first, then push toward 0.90. The current pipeline is \
+likely in the 0.50-0.65 range. Every iteration must make a meaningful architectural \
+advance that moves the score by at least +0.05.
 
-## What SOTA systems do that naive RAG doesn't:
+## What the 0.60→0.75 gap requires (MemMachine techniques):
+1. **Timestamped episodic memories**: Store each turn with its source timestamp \
+(date from the conversation). When answering "when did X happen?", the timestamp IS \
+the answer — retrieve the episode and return its timestamp, not just the content.
 
-1. **Coreference resolution**: Resolve "he", "she", "my friend", "they" to canonical \
-entity names during ingest. LoCoMo questions ask about specific named people — \
-you must find the right person's facts even when the turn uses pronouns.
+2. **Expand context around retrieved episodes**: When a relevant episode is found, \
+also return the 2-3 turns before and after it. LoCoMo answers often require context \
+surrounding the key turn, not just the turn itself.
 
-2. **Temporal fact versioning**: Facts evolve. "Nate used to play CS:GO, now plays \
-Valorant." Store facts with turn/session timestamps. When answering "what does X do \
-NOW", rank recent facts over old ones. When answering "what did X used to do", rank \
-old facts.
+3. **Relative time resolution**: If a turn from "4 May 2022" says "I went to India \
+last year", resolve that to 2021. Pre-compute absolute dates for all relative references \
+during ingest.
 
-3. **Typed relation triples**: Store facts as structured (entity, relation, value, \
-turn_idx) not just strings. Enables precise lookup: "find Caroline's hobbies" or \
-"find where Nate works". BM25 and even embedding search over raw text misses these.
+4. **Working memory summary**: Maintain a rolling summary of the conversation that \
+gets updated every N sessions. Use this as a fast lookup for open-domain questions \
+that span the whole conversation.
 
-4. **Multi-hop reasoning**: LoCoMo questions often chain facts. "Who introduced X to Y?" \
-requires finding who knows both. Implement: extract entities from the question, retrieve \
-facts about each entity, reason across them to form the answer.
+## What the 0.75→0.90 gap requires:
+1. **Coreference resolution**: Resolve "he", "she", "my friend" to canonical entity \
+names during ingest so facts are findable by person name.
 
-5. **Query decomposition**: Break questions like "What sport does Nate play and when \
-did he start?" into sub-questions, answer each, synthesise. Dramatically improves \
-multi-hop and temporal questions.
+2. **Typed relation triples**: Store facts as (entity, relation, value, turn_idx). \
+Enables precise lookup for "find Caroline's hobbies" or "find where Nate works".
+
+3. **Multi-hop reasoning**: Extract entities from question, retrieve facts about each, \
+reason across them. "Who introduced X to Y?" requires finding who knows both.
+
+4. **Query decomposition**: Break multi-part questions into sub-questions, answer \
+each, synthesise.
 
 6. **Cross-session entity tracking**: Conversations happen across many sessions. \
-Track the same entity's state across all sessions. An entity profile aggregates all \
-known facts about a person across the whole conversation history.
-
-7. **Confidence-aware answering**: If retrieved facts don't clearly answer the question, \
-say "based on available information: [best guess]" rather than hallucinating. \
-LoCoMo F1 rewards partial credit.
-
 ## Your constraints:
-- **Optimise pure F1. Token cost is irrelevant.**
+- **Optimise pure LLM-judge accuracy. Token cost is irrelevant.**
 - You have FULL FREEDOM: rewrite any method, add any data structures, make as many \
 LLM calls during ingest or query as needed. The relay supports "haiku" (fast/cheap) \
 and "sonnet" (powerful) — use haiku for extraction/classification, sonnet for reasoning.
-- Make ARCHITECTURAL changes. Do not tweak STRATEGY dict parameters — that space \
-is exhausted. Implement new capabilities.
+- Implement the specific techniques listed above — they have known empirical impact. \
+Do not invent novel untested approaches when proven techniques haven't been tried yet.
 - Avoid changes already marked rejected in the history.
+- The generated pipeline MUST have robust error handling — wrap all LLM calls in \
+try/except with retries, so a single 503 doesn't crash the evaluation.
 - Return ONLY the complete modified Python file. No explanation, no markdown fences. \
 First character must be "#".
 """
@@ -292,10 +318,14 @@ First character must be "#".
         text = text.replace("\u2192", "->")   # → arrow  (type hints)
         text = text.replace("\u2014", "--")   # — em dash (comments)
         text = text.replace("\u2013", "-")    # – en dash
+        text = text.replace("\u2212", "-")    # − minus sign (numbers)
         text = text.replace("\u201c", '"')    # " left double quote
         text = text.replace("\u201d", '"')    # " right double quote
         text = text.replace("\u2018", "'")    # ' left single quote
         text = text.replace("\u2019", "'")    # ' right single quote
+        text = text.replace("\u00b7", "*")    # · middle dot (multiply)
+        text = text.replace("\u00d7", "*")    # × multiplication sign
+        text = text.replace("\u00f7", "/")    # ÷ division sign
 
         return text
 

@@ -1,18 +1,17 @@
 """Scoring function for the autoresearch loop.
 
-Evaluates a ContextPipeline (or any MemorySystem implementation) on a sample
-of conversation examples and returns a scalar optimization target.
+Evaluates a ContextPipeline on a sample of conversation examples and returns
+a scalar optimization target.
 
-The primary metric is ``token_efficiency = f1 / (mean_input_tokens / 1000)``.
-Higher token efficiency means the pipeline answers correctly while consuming
-fewer input tokens — exactly the trade-off the autoresearch loop is optimising.
+Uses an LLM judge (matching MemMachine/Mem0 LoCoMo evaluation protocol) as
+the primary metric so scores are directly comparable to published SOTA numbers.
 """
 
 from __future__ import annotations
 
 from typing import Any, Type
 
-from context_bench.evaluators.answer_quality import AnswerQuality
+from context_bench.evaluators.llm_judge_locomo import LLMJudgeLoCoMo
 from context_bench.memory_runner import evaluate_memory
 from context_bench.metrics.token_efficiency import TokenEfficiencyMetric
 
@@ -24,49 +23,37 @@ def score_pipeline(
     model: str = "claude-haiku-4-5-20251001",
     api_key: str = "",
 ) -> dict[str, float]:
-    """Evaluate a pipeline on a sample of examples.
+    """Evaluate a pipeline on a sample of examples using LLM judge scoring.
 
-    Instantiates ``pipeline_class``, runs evaluate_memory() over ``examples``
-    with AnswerQuality as the evaluator and TokenEfficiencyMetric for
-    aggregation, then returns a summary dict.
+    Uses the same ACCURACY_PROMPT and CORRECT/WRONG protocol as MemMachine's
+    llm_judge.py so results are directly comparable to published SOTA numbers
+    on the LoCoMo benchmark.
 
     Args:
         pipeline_class: A class implementing the MemorySystem protocol.
-            Its constructor must accept ``relay_url``, ``model``, and
-            ``api_key`` keyword arguments.
-        examples:       List of conversation examples in evaluate_memory()
-                        format (keys: id, turns, qa_pairs, dataset).
-        relay_url:      Base URL of the OpenAI-compatible relay.
-        model:          Chat model name forwarded to pipeline_class.
-        api_key:        Bearer token for the relay.
+            Constructor must accept ``relay_url``, ``model``, ``api_key``.
+        examples:   List of conversation examples (keys: id, turns, qa_pairs).
+        relay_url:  Base URL of the OpenAI-compatible relay.
+        model:      Chat model name forwarded to pipeline_class.
+        api_key:    Bearer token for the relay.
 
     Returns:
-        A dict with the following keys:
-
-        ``score``
-            Primary optimisation target — equal to ``token_efficiency``.
-            Maximise this value.
-        ``f1``
-            Mean token-level F1 across all QA pairs.
-        ``token_efficiency``
-            F1 per 1 000 input words (proxy for tokens).
-        ``mean_input_tokens``
-            Mean word count of ingested conversation histories.
-        ``n``
-            Number of QA pairs evaluated.
+        ``score``            Primary optimisation target — LLM judge accuracy.
+        ``llm_judge``        Mean LLM judge score (0/1 per question).
+        ``mean_input_tokens`` Mean word count of ingested conversations.
+        ``n``                Number of QA pairs evaluated.
     """
     if not examples:
-        return {"score": 0.0, "f1": 0.0, "token_efficiency": 0.0, "mean_input_tokens": 0.0, "n": 0}
+        return {"score": 0.0, "llm_judge": 0.0, "mean_input_tokens": 0.0, "n": 0}
 
-    # Build the pipeline instance using keyword-only relay args.
     pipeline = pipeline_class(
         relay_url=relay_url,
         model=model,
         api_key=api_key if api_key else None,
     )
 
-    evaluator = AnswerQuality()
-    metric = TokenEfficiencyMetric(score_field="f1")
+    evaluator = LLMJudgeLoCoMo(relay_url=relay_url, model="haiku", api_key=api_key)
+    metric = TokenEfficiencyMetric(score_field="llm_judge")
 
     result = evaluate_memory(
         systems=[pipeline],
@@ -79,18 +66,16 @@ def score_pipeline(
     rows = result.rows
     n = len(rows)
     if n == 0:
-        return {"score": 0.0, "f1": 0.0, "token_efficiency": 0.0, "mean_input_tokens": 0.0, "n": 0}
+        return {"score": 0.0, "llm_judge": 0.0, "mean_input_tokens": 0.0, "n": 0}
 
-    # Pull aggregated stats from the summary computed by TokenEfficiencyMetric
     system_summary = result.summary.get(pipeline.name, {})
-    token_efficiency = system_summary.get("token_efficiency", 0.0)
     mean_score = system_summary.get("mean_score", 0.0)
     mean_input_tokens = system_summary.get("mean_input_tokens", 0.0)
 
     return {
-        "score": mean_score,                # primary target: pure F1, no token penalty
-        "f1": mean_score,
-        "token_efficiency": token_efficiency,
+        "score": mean_score,
+        "llm_judge": mean_score,
+        "f1": mean_score,   # alias for backward compat with loop.py
         "mean_input_tokens": mean_input_tokens,
         "n": n,
     }

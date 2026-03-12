@@ -111,7 +111,12 @@ def _run_system(
             qa_type = qa.get("type", "")
 
             t_query = time.monotonic()
-            answer = system.query(question)
+            try:
+                answer = system.query(question)
+            except Exception as _qexc:
+                # Transient errors (503, timeout) from inside the pipeline
+                # should not crash the whole evaluation — treat as no answer.
+                answer = ""
             query_latency = time.monotonic() - t_query
 
             # Prefer the system's own context-token count (words actually sent

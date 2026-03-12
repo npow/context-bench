@@ -85,38 +85,78 @@ def load_pipeline_from_code(code: str) -> Type[Any]:
 def _summarise_mutation(old_code: str, new_code: str) -> str:
     """Return a short human-readable description of the diff.
 
-    Scans for changes to the STRATEGY dict and the class body, producing a
-    compact string suitable for logging.  Falls back to a generic label if
-    the change cannot be characterised neatly.
+    Produces a specific label so the mutator's score history is meaningful
+    and it can avoid repeating the same changes.
     """
     import re
+    import difflib
 
-    # Look for changed STRATEGY values
+    if old_code == new_code:
+        return "no visible change"
+
+    # 1. STRATEGY dict changes (fast path for simple tweaks)
     old_strategy = re.search(r"STRATEGY\s*=\s*\{(.+?)\}", old_code, re.DOTALL)
     new_strategy = re.search(r"STRATEGY\s*=\s*\{(.+?)\}", new_code, re.DOTALL)
-
     if old_strategy and new_strategy:
         old_text = old_strategy.group(1)
         new_text = new_strategy.group(1)
         if old_text != new_text:
-            # Find first differing line
             old_lines = [l.strip() for l in old_text.splitlines() if l.strip()]
             new_lines = [l.strip() for l in new_text.splitlines() if l.strip()]
             for ol, nl in zip(old_lines, new_lines):
                 if ol != nl:
                     return f"STRATEGY: {ol!r} -> {nl!r}"
-            # Different number of lines
             if len(old_lines) != len(new_lines):
                 return "STRATEGY: added/removed keys"
 
-    # Check for code-level changes outside the STRATEGY dict
-    old_non_strategy = re.sub(r"STRATEGY\s*=\s*\{.+?\}", "", old_code, flags=re.DOTALL)
-    new_non_strategy = re.sub(r"STRATEGY\s*=\s*\{.+?\}", "", new_code, flags=re.DOTALL)
-    if old_non_strategy != new_non_strategy:
-        return "code-level change (method or logic modified)"
+    # 2. Detect added/removed/renamed methods
+    old_methods = set(re.findall(r"^\s*def (\w+)\s*\(", old_code, re.MULTILINE))
+    new_methods = set(re.findall(r"^\s*def (\w+)\s*\(", new_code, re.MULTILINE))
+    added = new_methods - old_methods
+    removed = old_methods - new_methods
+    parts = []
+    if added:
+        parts.append(f"add {', '.join(sorted(added))}")
+    if removed:
+        parts.append(f"remove {', '.join(sorted(removed))}")
+    if parts:
+        return "; ".join(parts)
 
-    # Identical — the agent returned the same file
-    return "no visible change"
+    # 3. Detect added/removed class-level attributes or data structures
+    old_attrs = set(re.findall(r"^\s*(\w+)\s*(?::|=)[^=]", old_code, re.MULTILINE))
+    new_attrs = set(re.findall(r"^\s*(\w+)\s*(?::|=)[^=]", new_code, re.MULTILINE))
+    added_attrs = new_attrs - old_attrs
+    removed_attrs = old_attrs - new_attrs
+    if added_attrs or removed_attrs:
+        attr_parts = []
+        if added_attrs:
+            attr_parts.append(f"add attr {', '.join(sorted(added_attrs)[:3])}")
+        if removed_attrs:
+            attr_parts.append(f"remove attr {', '.join(sorted(removed_attrs)[:3])}")
+        return "; ".join(attr_parts)
+
+    # 4. Summarise changed lines from the diff
+    diff = list(difflib.unified_diff(
+        old_code.splitlines(), new_code.splitlines(), lineterm="", n=0
+    ))
+    added_lines = [l[1:].strip() for l in diff if l.startswith("+") and not l.startswith("+++")]
+    removed_lines = [l[1:].strip() for l in diff if l.startswith("-") and not l.startswith("---")]
+
+    # Find the most informative added line (prefer non-trivial ones)
+    def _score_line(l):
+        return len(l) if len(l) > 10 and not l.startswith("#") else 0
+
+    best_added = max(added_lines, key=_score_line, default="")
+    best_removed = max(removed_lines, key=_score_line, default="")
+
+    if best_added and best_removed:
+        return f"{best_removed[:50]!r} -> {best_added[:50]!r}"
+    elif best_added:
+        return f"add: {best_added[:80]!r}"
+    elif best_removed:
+        return f"remove: {best_removed[:80]!r}"
+
+    return "code modified"
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +377,8 @@ def load_dataset(name: str) -> list[dict]:
     """Load a named dataset and return a flat list of examples."""
     if name == "locomo":
         from context_bench.datasets.memory import locomo
-        return locomo()
+        # Exclude adversarial (category 5) to match MemMachine/Mem0 eval protocol
+        return locomo(qa_types=["single_hop", "multi_hop", "temporal", "open_domain"])
     elif name.startswith("longmemeval"):
         from context_bench.datasets.memory import longmemeval
         # Support "longmemeval_s", "longmemeval_m", "longmemeval_oracle"
@@ -564,7 +605,7 @@ def main() -> None:
 
     print(
         f"  Baseline score: {best_score:.4f}  "
-        f"(f1={baseline_results['f1']:.4f}, "
+        f"(f1={baseline_results.get('f1', baseline_results.get('llm_judge', 0)):.4f}, "
         f"mean_tokens={baseline_results['mean_input_tokens']:.0f}, "
         f"n={baseline_results['n']})",
         flush=True,
