@@ -74,23 +74,55 @@ def locomo(
             break
 
         # turns is a list of raw strings: "timestamp\n Speaker: text\n"
-        # Convert to role/content dicts by detecting speaker alternation.
-        # Speaker_1 -> user, Speaker_2 -> assistant
+        # Preserve timestamps and real speaker names — both are critical for
+        # LoCoMo temporal questions ("when did X happen?") and entity questions.
         raw_turns = item.get("turns", [])
         turns: list[dict[str, str]] = []
         for raw in raw_turns:
-            # Strip timestamp line, keep content
             lines = [l.strip() for l in raw.strip().splitlines() if l.strip()]
-            for line in lines:
+            if not lines:
+                continue
+
+            # First line is typically the timestamp (e.g. "1:56 pm on 8 May, 2023")
+            timestamp = ""
+            content_lines = lines
+            if lines and not any(lines[0].startswith(pfx) for pfx in ("Speaker_1:", "Speaker_2:")):
+                # Check if this looks like a timestamp (contains time or date)
+                first = lines[0]
+                if any(kw in first.lower() for kw in ("am", "pm", "on ", "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")):
+                    timestamp = first
+                    content_lines = lines[1:]
+
+            for line in content_lines:
+                # Detect speaker: "Name: text" or "Speaker_N: text"
+                speaker = None
+                content = ""
                 if line.startswith("Speaker_1:"):
-                    turns.append({"role": "user", "content": line[len("Speaker_1:"):].strip()})
+                    speaker = "Speaker_1"
+                    content = line[len("Speaker_1:"):].strip()
                 elif line.startswith("Speaker_2:"):
-                    turns.append({"role": "assistant", "content": line[len("Speaker_2:"):].strip()})
-                elif ":" in line and not any(c.isdigit() and line[i+1:i+2] == ":" for i, c in enumerate(line)):
-                    # Generic "Name: text" format — odd turns are user, even assistant
-                    content = line.split(":", 1)[1].strip()
+                    speaker = "Speaker_2"
+                    content = line[len("Speaker_2:"):].strip()
+                elif ":" in line:
+                    parts = line.split(":", 1)
+                    # Only treat as speaker if the part before ":" is a name (no digits)
+                    candidate = parts[0].strip()
+                    if candidate and not any(c.isdigit() for c in candidate):
+                        speaker = candidate
+                        content = parts[1].strip()
+
+                if speaker and content:
                     role = "user" if len(turns) % 2 == 0 else "assistant"
-                    turns.append({"role": role, "content": content})
+                    # Prefix content with timestamp and real speaker name
+                    prefix = ""
+                    if timestamp:
+                        prefix += f"[{timestamp}] "
+                    if speaker not in ("Speaker_1", "Speaker_2"):
+                        prefix += f"{speaker}: "
+                    turns.append({
+                        "role": role,
+                        "content": prefix + content,
+                    })
 
         questions = item.get("questions", [])
         answers = item.get("answers", [])
