@@ -22,6 +22,8 @@ def score_pipeline(
     relay_url: str,
     model: str = "claude-haiku-4-5-20251001",
     api_key: str = "",
+    tool_relay_url: str | None = None,
+    judge_model: str = "haiku",
 ) -> dict[str, float]:
     """Evaluate a pipeline on a sample of examples using LLM judge scoring.
 
@@ -32,10 +34,14 @@ def score_pipeline(
     Args:
         pipeline_class: A class implementing the MemorySystem protocol.
             Constructor must accept ``relay_url``, ``model``, ``api_key``.
-        examples:   List of conversation examples (keys: id, turns, qa_pairs).
-        relay_url:  Base URL of the OpenAI-compatible relay.
-        model:      Chat model name forwarded to pipeline_class.
-        api_key:    Bearer token for the relay.
+        examples:       List of conversation examples (keys: id, turns, qa_pairs).
+        relay_url:      Base URL for the pipeline's answer model.
+        model:          Chat model name forwarded to pipeline_class.
+        api_key:        Bearer token for the relay.
+        tool_relay_url: Relay URL for the LLM judge (defaults to relay_url).
+                        Use a separate relay (e.g. claude-relay) when relay_url
+                        points to cliproxyapi or another rate-limited proxy.
+        judge_model:    Model name for the LLM judge (default: "haiku").
 
     Returns:
         ``score``            Primary optimisation target — LLM judge accuracy.
@@ -52,7 +58,8 @@ def score_pipeline(
         api_key=api_key if api_key else None,
     )
 
-    evaluator = LLMJudgeLoCoMo(relay_url=relay_url, model="haiku", api_key=api_key)
+    _judge_relay = tool_relay_url or relay_url
+    evaluator = LLMJudgeLoCoMo(relay_url=_judge_relay, model=judge_model, api_key=api_key)
     metric = TokenEfficiencyMetric(score_field="llm_judge")
 
     result = evaluate_memory(

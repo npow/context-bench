@@ -169,6 +169,8 @@ def evaluate_pipeline(
     relay_url: str,
     model: str,
     api_key: str,
+    tool_relay_url: str | None = None,
+    judge_model: str = "haiku",
 ) -> dict[str, float]:
     """Run score_pipeline() and return the results dict.
 
@@ -187,6 +189,8 @@ def evaluate_pipeline(
                 relay_url=relay_url,
                 model=model,
                 api_key=api_key,
+                tool_relay_url=tool_relay_url,
+                judge_model=judge_model,
             )
         except Exception as exc:
             msg = str(exc)
@@ -260,6 +264,8 @@ def run_final_eval(
     model: str,
     api_key: str,
     output_dir: Path,
+    tool_relay_url: str | None = None,
+    judge_model: str = "haiku",
 ) -> None:
     """Evaluate the best discovered pipeline vs NaiveMemorySystem on the held-out test set.
 
@@ -281,6 +287,8 @@ def run_final_eval(
             relay_url=relay_url,
             model=model,
             api_key=api_key,
+            tool_relay_url=tool_relay_url,
+            judge_model=judge_model,
         )
     except Exception as exc:
         print(f"ERROR evaluating best pipeline: {exc}")
@@ -323,6 +331,8 @@ def run_final_eval(
             relay_url=relay_url,
             model=model,
             api_key=api_key,
+            tool_relay_url=tool_relay_url,
+            judge_model=judge_model,
         )
     except Exception as exc:
         print(f"ERROR evaluating NaiveMemorySystem: {exc}")
@@ -470,6 +480,22 @@ def parse_args() -> argparse.Namespace:
         help="Bearer token for the relay. Falls back to OPENAI_API_KEY env var.",
     )
     parser.add_argument(
+        "--tool-relay",
+        default=None,
+        metavar="URL",
+        help=(
+            "Separate relay URL for the LLM judge and mutator (default: same as --relay). "
+            "Use this when --relay points to a rate-limited proxy (e.g. cliproxyapi) — "
+            "route judge+mutator through claude-relay instead."
+        ),
+    )
+    parser.add_argument(
+        "--judge-model",
+        default="haiku",
+        metavar="MODEL",
+        help="Model name for the LLM judge (default: haiku). Use full name if tool-relay requires it.",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Resume from a previous checkpoint in --output-dir (if present)",
@@ -491,8 +517,10 @@ def main() -> None:
     args = parse_args()
 
     relay_url: str = args.relay
+    tool_relay_url: str = args.tool_relay or args.relay
     model: str = args.model
     mutation_model: str = args.mutation_model
+    judge_model: str = args.judge_model
     api_key: str = args.api_key or os.environ.get("OPENAI_API_KEY", "")
     iterations: int = args.iterations
     eval_n: int = args.eval_n
@@ -592,7 +620,8 @@ def main() -> None:
         try:
             baseline_class = load_pipeline_from_code(current_code)
             baseline_results = evaluate_pipeline(
-                baseline_class, eval_sample, relay_url, model, api_key
+                baseline_class, eval_sample, relay_url, model, api_key,
+                tool_relay_url=tool_relay_url, judge_model=judge_model,
             )
             best_score = baseline_results["score"]
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -617,7 +646,7 @@ def main() -> None:
     from context_bench.loop import PipelineMutator
 
     mutator = PipelineMutator(
-        relay_url=relay_url,
+        relay_url=tool_relay_url,
         model=mutation_model,
         api_key=api_key,
         timeout=600.0,  # 10 min — architectural rewrites take time
@@ -688,7 +717,8 @@ def main() -> None:
 
         try:
             results = evaluate_pipeline(
-                candidate_class, eval_sample, relay_url, model, api_key
+                candidate_class, eval_sample, relay_url, model, api_key,
+                tool_relay_url=tool_relay_url, judge_model=judge_model,
             )
             candidate_score = results["score"]
             eval_error = None
@@ -769,6 +799,8 @@ def main() -> None:
         model=model,
         api_key=api_key,
         output_dir=output_dir,
+        tool_relay_url=tool_relay_url,
+        judge_model=judge_model,
     )
 
 
