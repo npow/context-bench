@@ -1,14 +1,14 @@
-"""Evaluation runner for stateful MemorySystem implementations.
+"""Evaluation runner for MemorySystem implementations (v2).
 
-A MemorySystem is evaluated over conversation examples where each example
-contains a full conversation history and one or more QA pairs.
+Supports both the new typed protocol (BenchmarkExample with Item types)
+and the legacy dict-based format for backward compatibility with loop.py.
 
 The loop per example:
     system.reset()
-    system.ingest(turns)
-    for qa in qa_pairs:
-        answer = system.query(qa["question"])
-        score(answer, qa["answer"])
+    system.ingest(example.items)
+    for query in example.queries:
+        result = system.query(query.question)
+        score(query, result)
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from context_bench.results import EvalResult, EvalRow
 
 def evaluate_memory(
     systems: list[Any],
-    dataset: Iterable[dict[str, Any]],
+    dataset: Iterable[Any],
     evaluators: list[Any],
     metrics: list[Any] | None = None,
     max_examples: int | None = None,
@@ -30,22 +30,20 @@ def evaluate_memory(
 ) -> EvalResult:
     """Run evaluation over a memory benchmark dataset.
 
-    Each example in the dataset must have:
-        - ``"id"``: unique identifier
-        - ``"turns"``: list of ``{"role": ..., "content": ...}`` dicts
-        - ``"qa_pairs"``: list of ``{"question": str, "answer": str}`` dicts
-        - ``"dataset"`` (optional): dataset tag string
+    Accepts either:
+    - list[BenchmarkExample] (new typed format)
+    - list[dict] with "turns" and "qa_pairs" keys (legacy format)
 
     Args:
         systems: Objects implementing the MemorySystem protocol.
-        dataset: Iterable of conversation examples.
+        dataset: Iterable of examples.
         evaluators: Objects implementing the Evaluator protocol.
         metrics: Optional aggregation metrics.
-        max_examples: Limit number of conversations evaluated.
+        max_examples: Limit number of examples evaluated.
         progress: Print progress to stderr.
 
     Returns:
-        EvalResult with one EvalRow per (system, conversation, qa_pair).
+        EvalResult with one EvalRow per (system, example, query).
     """
     if metrics is None:
         metrics = []
@@ -84,101 +82,194 @@ def evaluate_memory(
 
 def _run_system(
     system: Any,
-    examples: list[dict[str, Any]],
+    examples: list[Any],
     evaluators: list[Any],
     progress: bool,
 ) -> list[EvalRow]:
     rows: list[EvalRow] = []
 
     for i, example in enumerate(examples):
-        conversation_id = example.get("id", i)
-        dataset_tag = example.get("dataset", "")
-        turns = example.get("turns", [])
-        qa_pairs = example.get("qa_pairs", [])
-
-        # Reset memory state before each conversation
-        system.reset()
-
-        # Ingest the full conversation history
-        t_ingest = time.monotonic()
-        system.ingest(turns)
-        ingest_latency = time.monotonic() - t_ingest
-
-        # Query once per QA pair
-        for j, qa in enumerate(qa_pairs):
-            question = qa["question"]
-            gold = qa["answer"]
-            qa_type = qa.get("type", "")
-
-            t_query = time.monotonic()
-            try:
-                answer = system.query(question)
-            except Exception as _qexc:
-                # Transient errors (503, timeout) from inside the pipeline
-                # should not crash the whole evaluation — treat as no answer.
-                answer = ""
-            query_latency = time.monotonic() - t_query
-
-            # Prefer the system's own context-token count (words actually sent
-            # to the final LLM call) over the full conversation word count.
-            # This makes token_efficiency meaningful: a pipeline that retrieves
-            # 5 chunks gets credit for sending fewer tokens than one that sends
-            # the full history.  Falls back to conversation word count for
-            # systems that don't expose last_context_tokens.
-            context_tokens = getattr(system, "last_context_tokens", None)
-            if context_tokens is None:
-                context_tokens = sum(
-                    len(t.get("content", "").split()) for t in turns
-                )
-
-            # Build pseudo-example/processed dicts for existing evaluators.
-            # Include a truncated conversation snippet so LLM-judge evaluators
-            # (e.g. FalseMemoryRate) can distinguish recalled facts from hallucinations.
-            context_snippet = _truncate_turns(turns, max_chars=3000)
-            pseudo_input = {
-                "id": f"{conversation_id}_{j}",
-                "dataset": dataset_tag,
-                "question": question,
-                "answer": gold,
-                "context": context_snippet,
-            }
-            pseudo_output = {**pseudo_input, "response": answer}
-
-            scores: dict[str, float] = {}
-            for evaluator in evaluators:
-                scores.update(evaluator.score(pseudo_input, pseudo_output))
-
-            rows.append(EvalRow(
-                system=system.name,
-                example_id=f"{conversation_id}_{j}",
-                scores=scores,
-                input_tokens=context_tokens,
-                output_tokens=len(answer.split()),
-                metadata={
-                    "qa_type": qa_type,
-                    "ingest_latency": ingest_latency,
-                    "query_latency": query_latency,
-                    "conversation_id": conversation_id,
-                    "turn_count": len(turns),
-                },
-                latency=query_latency,
-                dataset=dataset_tag,
-            ))
+        # Detect whether this is a BenchmarkExample or a legacy dict
+        if _is_benchmark_example(example):
+            rows.extend(_run_typed_example(system, example, evaluators))
+        else:
+            rows.extend(_run_legacy_example(system, example, i, evaluators))
 
         if progress and (i + 1) % 5 == 0:
-            print(f"  {system.name}: {i + 1}/{len(examples)} conversations", file=sys.stderr)
+            total = len(examples)
+            print(f"  {system.name}: {i + 1}/{total} examples", file=sys.stderr)
 
     return rows
 
 
-def _truncate_turns(turns: list[dict[str, Any]], max_chars: int = 3000) -> str:
-    """Serialize conversation turns to a string, keeping the most recent content.
+def _is_benchmark_example(example: Any) -> bool:
+    """Check if example is a BenchmarkExample (has .items and .queries attrs)."""
+    return hasattr(example, "items") and hasattr(example, "queries")
 
-    Starts from the end of the conversation and prepends turns until the
-    character budget is exhausted.  This prioritises recent context (where the
-    answer fact is most likely to appear) while keeping the context window
-    manageable for LLM-judge evaluators.
-    """
+
+def _run_typed_example(
+    system: Any,
+    example: Any,
+    evaluators: list[Any],
+) -> list[EvalRow]:
+    """Run a BenchmarkExample through the system."""
+    from context_bench.memory_types import QueryResult
+
+    rows: list[EvalRow] = []
+    system.reset()
+
+    t_ingest = time.monotonic()
+    ingest_result = system.ingest(example.items)
+    ingest_latency = time.monotonic() - t_ingest
+
+    for j, bq in enumerate(example.queries):
+        t_query = time.monotonic()
+        try:
+            result = system.query(bq.question)
+        except Exception:
+            result = QueryResult(answer="", total_latency_ms=0.0)
+        query_latency = time.monotonic() - t_query
+
+        # Build pseudo dicts for existing evaluators
+        context_snippet = _items_to_context_snippet(example.items, max_chars=3000)
+        pseudo_input = {
+            "id": f"{example.id}_{j}",
+            "dataset": example.dataset,
+            "question": bq.question,
+            "answer": bq.answer,
+            "context": context_snippet,
+        }
+        pseudo_output = {**pseudo_input, "response": result.answer}
+
+        scores: dict[str, float] = {}
+        for evaluator in evaluators:
+            scores.update(evaluator.score(pseudo_input, pseudo_output))
+
+        rows.append(EvalRow(
+            system=system.name,
+            example_id=f"{example.id}_{j}",
+            scores=scores,
+            input_tokens=result.context_tokens,
+            output_tokens=len(result.answer.split()),
+            metadata={
+                "qa_type": bq.query_type,
+                "ingest_latency": ingest_latency,
+                "query_latency": query_latency,
+                "conversation_id": example.id,
+                "turn_count": len(example.items),
+                **result.details,
+            },
+            latency=query_latency,
+            dataset=example.dataset,
+        ))
+
+    return rows
+
+
+def _run_legacy_example(
+    system: Any,
+    example: dict[str, Any],
+    index: int,
+    evaluators: list[Any],
+) -> list[EvalRow]:
+    """Run a legacy dict-format example through the system."""
+    rows: list[EvalRow] = []
+    conversation_id = example.get("id", index)
+    dataset_tag = example.get("dataset", "")
+    turns = example.get("turns", [])
+    qa_pairs = example.get("qa_pairs", [])
+
+    system.reset()
+
+    t_ingest = time.monotonic()
+    system.ingest(turns)
+    ingest_latency = time.monotonic() - t_ingest
+
+    for j, qa in enumerate(qa_pairs):
+        question = qa["question"]
+        gold = qa["answer"]
+        qa_type = qa.get("type", "")
+
+        t_query = time.monotonic()
+        try:
+            answer = system.query(question)
+            # Handle both str and QueryResult returns
+            if hasattr(answer, "answer"):
+                answer_str = answer.answer
+                context_tokens = answer.context_tokens
+            else:
+                answer_str = str(answer)
+                context_tokens = getattr(system, "last_context_tokens", None)
+                if context_tokens is None:
+                    context_tokens = sum(
+                        len(t.get("content", "").split()) for t in turns
+                    )
+        except Exception:
+            answer_str = ""
+            context_tokens = 0
+        query_latency = time.monotonic() - t_query
+
+        context_snippet = _truncate_turns(turns, max_chars=3000)
+        pseudo_input = {
+            "id": f"{conversation_id}_{j}",
+            "dataset": dataset_tag,
+            "question": question,
+            "answer": gold,
+            "context": context_snippet,
+        }
+        pseudo_output = {**pseudo_input, "response": answer_str}
+
+        scores: dict[str, float] = {}
+        for evaluator in evaluators:
+            scores.update(evaluator.score(pseudo_input, pseudo_output))
+
+        rows.append(EvalRow(
+            system=system.name,
+            example_id=f"{conversation_id}_{j}",
+            scores=scores,
+            input_tokens=context_tokens,
+            output_tokens=len(answer_str.split()),
+            metadata={
+                "qa_type": qa_type,
+                "ingest_latency": ingest_latency,
+                "query_latency": query_latency,
+                "conversation_id": conversation_id,
+                "turn_count": len(turns),
+            },
+            latency=query_latency,
+            dataset=dataset_tag,
+        ))
+
+    return rows
+
+
+def _items_to_context_snippet(items: list[Any], max_chars: int = 3000) -> str:
+    """Serialize typed items to a string, keeping the most recent content."""
+    from context_bench.memory_types import ConversationTurn, DocumentChunk, PlatformEvent, Declaration
+
+    lines: list[str] = []
+    total = 0
+    for item in reversed(items):
+        if isinstance(item, ConversationTurn):
+            line = f"{item.role.upper()}: {item.content}"
+        elif isinstance(item, DocumentChunk):
+            line = item.content
+        elif isinstance(item, PlatformEvent):
+            line = f"[{item.platform}] {item.content}"
+        elif isinstance(item, Declaration):
+            line = f"{item.key}: {item.value}"
+        else:
+            line = str(item)
+        if total + len(line) > max_chars and lines:
+            break
+        lines.append(line)
+        total += len(line) + 1
+    lines.reverse()
+    return "\n".join(lines)
+
+
+def _truncate_turns(turns: list[dict[str, Any]], max_chars: int = 3000) -> str:
+    """Serialize legacy conversation turns to a string."""
     lines: list[str] = []
     total = 0
     for turn in reversed(turns):
@@ -188,6 +279,6 @@ def _truncate_turns(turns: list[dict[str, Any]], max_chars: int = 3000) -> str:
         if total + len(line) > max_chars and lines:
             break
         lines.append(line)
-        total += len(line) + 1  # +1 for newline
+        total += len(line) + 1
     lines.reverse()
     return "\n".join(lines)

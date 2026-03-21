@@ -225,7 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     memory_parser = subparsers.add_parser(
         "memory",
         help="Benchmark stateful memory systems on conversation datasets.",
-        description="Evaluate memory systems (naive, mem0, zep) on LoCoMo or LongMemEval.",
+        description="Evaluate memory systems (naive, embedding, rlm, mem0, zep) on LoCoMo or LongMemEval.",
         epilog=(
             "Examples:\n"
             "  context-bench memory --system naive --relay http://localhost:7878\n"
@@ -247,7 +247,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="SYSTEM",
         dest="systems",
-        help="Memory system to evaluate: naive, mem0, or zep (repeatable, at least one required).",
+        help="Memory system to evaluate: naive, embedding, rlm, mem0, zep (repeatable, at least one required).",
     )
     memory_parser.add_argument(
         "--relay",
@@ -393,6 +393,7 @@ def build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 
 _MEMORY_DATASETS = {"locomo", "longmemeval"}
+_MEMORY_SYSTEMS = {"naive", "embedding", "rlm", "mem0", "zep"}
 
 
 def _load_memory_dataset(
@@ -417,8 +418,21 @@ def _load_memory_dataset(
 def _build_memory_system(system_name: str, relay: str, model: str, api_key: str | None) -> Any:
     """Instantiate a memory system by name."""
     if system_name == "naive":
-        from context_bench.systems.naive_memory import NaiveMemorySystem
-        return NaiveMemorySystem(base_url=relay, model=model, api_key=api_key)
+        from context_bench.systems.naive import NaiveSystem
+        return NaiveSystem(base_url=relay, model=model, api_key=api_key)
+    elif system_name == "embedding":
+        from context_bench.systems.embedding import EmbeddingSystem
+        return EmbeddingSystem(base_url=relay, model=model, api_key=api_key)
+    elif system_name == "rlm":
+        try:
+            from context_bench.systems.rlm import RLMSystem
+            return RLMSystem(base_url=relay, model=model, api_key=api_key)
+        except ImportError as exc:
+            raise SystemExit(
+                "rlm system requires dspy, lancedb, duckdb, and sentence-transformers. "
+                "Install with: pip install dspy lancedb duckdb sentence-transformers\n"
+                f"(original error: {exc})"
+            ) from exc
     elif system_name == "mem0":
         try:
             from context_bench.systems.mem0_system import Mem0System
@@ -441,7 +455,8 @@ def _build_memory_system(system_name: str, relay: str, model: str, api_key: str 
             ) from exc
     else:
         raise SystemExit(
-            f"Unknown memory system {system_name!r}. Available: naive, mem0, zep"
+            f"Unknown memory system {system_name!r}. "
+            f"Available: {', '.join(sorted(_MEMORY_SYSTEMS))}"
         )
 
 
