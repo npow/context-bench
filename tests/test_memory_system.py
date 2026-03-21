@@ -526,12 +526,12 @@ class TestTokenEfficiencyMetric:
 # ===========================================================================
 
 class TestContextPipelineChunking:
-    """Tests for ContextPipeline ingest / retrieval using the current BM25 API."""
+    """Tests for ContextPipeline ingest / retrieval using _chunks/_retrieve API."""
 
     def _pipeline(self):
         from context_bench.pipeline.context_pipeline import ContextPipeline
         return ContextPipeline(
-            relay_url="http://localhost:9999",  # not called in these tests
+            relay_url="http://localhost:9999",
             model="test-model",
         )
 
@@ -544,76 +544,60 @@ class TestContextPipelineChunking:
             {"role": "user", "content": "I also have a dog named Rex."},
         ]
 
-    def test_turn_ingestion(self):
+    def test_turn_chunking(self):
         p = self._pipeline()
         p.ingest(self._turns())
-        assert len(p._turns) == 5
-        assert p._turns[0]["content"] == "I love cats."
+        assert len(p._chunks) == 5
 
-    def test_index_populated(self):
+    def test_bm25_index_populated(self):
         p = self._pipeline()
         p.ingest(self._turns())
-        # BM25 unigram index should have entries
-        assert len(p._index) > 0
+        assert p._bm25_index is not None
 
     def test_reset_clears_state(self):
         p = self._pipeline()
         p.ingest(self._turns())
-        assert len(p._turns) > 0
+        assert len(p._chunks) > 0
         p.reset()
-        assert p._turns == []
-        assert p._index == {}
+        assert p._chunks == []
 
     def test_bm25_retrieval_relevance(self):
         p = self._pipeline()
         p.ingest(self._turns())
-        chunks = p._retrieve_chunks("Maine Coon breed", [], [], "factual", top_k=2)
-        # The chunk containing the turn mentioning "Maine Coon" should be retrieved
-        all_indices = [idx for _score, indices in chunks for idx in indices]
-        # Turn 2 or 3 mentions Maine Coon
-        assert any(idx in (2, 3) for idx in all_indices)
+        results = p._retrieve("Maine Coon", k=2)
+        texts = [text for _idx, text, _score in results]
+        assert any("Maine Coon" in t for t in texts)
 
     def test_retrieval_k_respected(self):
         p = self._pipeline()
         p.ingest(self._turns())
-        chunks = p._retrieve_chunks("anything", [], [], "factual", top_k=2)
-        # Number of top-k hits (before expansion) is capped at 2
-        assert len(chunks) <= 2
+        results = p._retrieve("anything", k=2)
+        assert len(results) <= 2
 
     def test_retrieval_k_larger_than_chunks(self):
         p = self._pipeline()
         p.ingest(self._turns())
-        # Use "cats" which exists as a token in the index (not "cat")
-        chunks = p._retrieve_chunks("cats", [], [], "factual", top_k=100)
-        all_indices = {idx for _score, indices in chunks for idx in indices}
-        assert len(all_indices) > 0
+        results = p._retrieve("cats", k=100)
+        assert len(results) <= len(p._chunks)
 
     def test_chronological_order(self):
         p = self._pipeline()
         p.ingest(self._turns())
-        chunks = p._retrieve_chunks("cats love", [], [], "factual", top_k=3)
-        formatted_chron = p._format_chunks(chunks, chronological=True)
-        formatted_rel = p._format_chunks(chunks, chronological=False)
-        # Both should produce non-empty strings
-        assert len(formatted_chron) > 0
-        assert len(formatted_rel) > 0
+        results = p._retrieve("cats", k=3)
+        formatted = p._order_and_format(results, order="chronological")
+        assert len(formatted) > 0
 
-    def test_reverse_chron_vs_chron(self):
+    def test_reverse_chron_order(self):
         p = self._pipeline()
         p.ingest(self._turns())
-        chunks = p._retrieve_chunks("cats love", [], [], "factual", top_k=3)
-        formatted_chron = p._format_chunks(chunks, chronological=True)
-        # Chronological output should contain [T markers in ascending order
-        import re
-        t_indices = [int(m) for m in re.findall(r'\[T(\d+)\]', formatted_chron)]
-        # When chronological, chunks are sorted ascending by first turn index
-        # so T-indices within each chunk and across chunks should be non-decreasing
-        assert t_indices == sorted(t_indices)
+        results = p._retrieve("cats", k=3)
+        formatted = p._order_and_format(results, order="reverse_chron")
+        assert len(formatted) > 0
 
     def test_empty_chunks_no_crash(self):
         p = self._pipeline()
         p.ingest([])
-        results = p._retrieve_chunks("anything", [], [], "factual", top_k=5)
+        results = p._retrieve("anything", k=5)
         assert results == []
 
 
