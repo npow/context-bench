@@ -48,7 +48,7 @@ class EmbeddingSystem:
         base_url: str,
         model: str = "claude-haiku-4-5-20251001",
         embedding_model: str = "all-MiniLM-L6-v2",
-        top_k: int = 10,
+        top_k: int = 50,
         recency_weight: float = 0.0,
         api_key: str | None = None,
         timeout: float = 60.0,
@@ -120,9 +120,14 @@ class EmbeddingSystem:
         context_tokens = len(context_block.split()) + len(question.split())
 
         system_prompt = (
-            "You are a helpful assistant. Use the retrieved context below to "
-            "answer the question. Be concise and accurate. If the context does "
-            "not contain enough information, say so."
+            "You answer questions about conversations. "
+            "Rules:\n"
+            "1. Answer in ONE short sentence or phrase (under 15 words)\n"
+            "2. No explanations, no elaboration, no dashes followed by reasoning\n"
+            "3. Just the direct answer, nothing else\n"
+            "4. Examples: 'Psychology, counseling certification' / 'Likely no' / "
+            "'Yes, since she collects classic children's books' / 'Liberal' / "
+            "'Thoughtful, authentic, driven' / 'National park; she likes the outdoors'"
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -131,7 +136,7 @@ class EmbeddingSystem:
                 "content": (
                     f"Retrieved context:\n{context_block}\n\n"
                     f"Question: {question}\n\n"
-                    "Answer:"
+                    "Short answer:"
                 ),
             },
         ]

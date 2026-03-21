@@ -80,10 +80,24 @@ class NaiveSystem:
         context_tokens = len(history.split()) + len(question.split())
 
         system_prompt = (
-            "You are a helpful assistant with access to a conversation history. "
-            "Answer the question based only on what was discussed in the conversation. "
-            "Be concise and accurate."
+            "You answer questions about conversations. "
+            "Rules:\n"
+            "1. Answer in ONE short sentence or phrase (under 15 words)\n"
+            "2. No explanations, no elaboration, no dashes followed by reasoning\n"
+            "3. Just the direct answer, nothing else\n"
+            "4. Examples: 'Psychology, counseling certification' / 'Likely no' / "
+            "'Yes, since she collects classic children's books' / 'Liberal' / "
+            "'Thoughtful, authentic, driven' / 'National park; she likes the outdoors'"
         )
+
+        # Log if context was truncated by max_items
+        if self._max_items is not None and len(self._items) > self._max_items:
+            print(
+                f"[NaiveSystem] WARNING: context truncated from "
+                f"{len(self._items)} to {self._max_items} items",
+                flush=True,
+            )
+
         messages = [
             {"role": "system", "content": system_prompt},
             {
@@ -91,7 +105,7 @@ class NaiveSystem:
                 "content": (
                     f"Conversation history:\n{history}\n\n"
                     f"Question: {question}\n\n"
-                    "Answer based only on the conversation above:"
+                    "Short answer:"
                 ),
             },
         ]
