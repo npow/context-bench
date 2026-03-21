@@ -1,0 +1,76 @@
+Loading dataset: locomo ...
+  Loaded 10 conversations
+  Split: 8 train / 2 test (seed=7)
+  Pipeline source: src/context_bench/pipeline/full_context_pipeline.py
+
+Evaluating baseline ...
+  Baseline score: 0.7500  (f1=0.7500, mean_tokens=6009, n=40)
+
+Starting search: 100 iterations, eval_n=8
+
+Iter 1/100 | MUTATION ERROR: Mutator HTTP 500: Internal Server Error — skipping
+/Users/npow/.local/share/uv/python/cpython-3.12.12-macos-aarch64-none/lib/python3.12/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+Loading dataset: locomo ...
+  Loaded 10 conversations
+  Split: 8 train / 2 test (seed=7)
+  Pipeline source: src/context_bench/pipeline/full_context_pipeline.py
+  No checkpoint found — starting fresh
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.7500  (f1=0.7500, mean_tokens=6009, n=40)
+
+Starting search: 100 iterations, eval_n=3
+
+Iter 1/100 | MUTATION ERROR: Mutator HTTP 504: Gateway Timeout — skipping
+/Users/npow/.local/share/uv/python/cpython-3.12.12-macos-aarch64-none/lib/python3.12/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+Loading dataset: locomo ...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+  Loaded 10 conversations
+  Split: 8 train / 2 test (seed=7)
+  Pipeline source: src/context_bench/pipeline/full_context_pipeline.py
+  No checkpoint found — starting fresh
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.7500  (f1=0.7500, mean_tokens=6009, n=40)
+
+Starting search: 100 iterations, eval_n=3
+
+/Users/npow/.local/share/uv/python/cpython-3.12.12-macos-aarch64-none/lib/python3.12/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+Loading dataset: locomo ...
+  Loaded 10 conversations
+  Split: 8 train / 2 test (seed=7)
+  Pipeline source: src/context_bench/pipeline/full_context_pipeline.py
+  No checkpoint found — starting fresh
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.7500  (f1=0.7500, mean_tokens=6009, n=40)
+
+Starting search: 100 iterations, eval_n=3
+
+/Users/npow/.local/share/uv/python/cpython-3.12.12-macos-aarch64-none/lib/python3.12/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+Loading dataset: locomo ...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+  Loaded 10 conversations
+  Split: 8 train / 2 test (seed=7)
+  Pipeline source: src/context_bench/pipeline/full_context_pipeline.py
+  No checkpoint found — starting fresh
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.7500  (f1=0.7500, mean_tokens=6009, n=40)
+
+Starting search: 100 iterations, eval_n=3
+
+Iter   1/100 | score=0.8889 (+0.1389) accepted | best=0.8889 | 1809.9s | add _analyze_query, _answer_sub_question, _extract_capitalized_names, _get_entity_memory_block, _parse_triples_into_entity_memory, _retrieve_for_entity, _score_episodes, _tokenize_query, replace_next_year, replace_years_later
+Iter 2/100 | MUTATION ERROR: Generated code has syntax errors after 3 attempts: invalid syntax (<proposed_pipeline>, line 3) — skipping
+Iter   3/100 | score=0.6667 (-0.2222) rejected | best=0.8889 | 1352.9s | add _broad_retrieval, _build_pronoun_context, _build_timeline, _generate_hyde_passage, _get_timeline_context, _is_uncertain, _postprocess_answer
+Iter   4/100 | score=0.7778 (-0.1111) rejected | best=0.8889 | 1756.6s | add _build_date_index, _get_facts_by_keywords, _normalize_final_answer, _retrieve_by_date
+/Users/npow/.local/share/uv/python/cpython-3.12.12-macos-aarch64-none/lib/python3.12/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

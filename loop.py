@@ -635,13 +635,19 @@ def main() -> None:
     print("\nEvaluating baseline ...", flush=True)
     eval_sample = sample_search_pool(train_examples, n=eval_n, seed=seed)
 
-    # Cap QA pairs per conversation so large datasets (e.g. LoCoMo with 200 QA/conv)
-    # don't make each evaluation take hours.
+    # Cap QA pairs per conversation so large datasets don't make each evaluation take hours.
     if max_qa_per_conv and max_qa_per_conv > 0:
-        eval_sample = [
-            {**ex, "qa_pairs": ex["qa_pairs"][:max_qa_per_conv]}
-            for ex in eval_sample
-        ]
+        import dataclasses as _dc
+        capped = []
+        for ex in eval_sample:
+            if isinstance(ex, dict):
+                capped.append({**ex, "qa_pairs": ex["qa_pairs"][:max_qa_per_conv]})
+            elif hasattr(ex, "queries"):
+                # BenchmarkExample dataclass
+                capped.append(_dc.replace(ex, queries=ex.queries[:max_qa_per_conv]))
+            else:
+                capped.append(ex)
+        eval_sample = capped
 
 
     # Cache baseline so restarts don't re-evaluate from scratch.
@@ -651,7 +657,15 @@ def main() -> None:
         _cached = _json.loads(baseline_cache_path.read_text())
         baseline_results = _cached
         best_score = baseline_results["score"]
-        print(f"  (resumed cached baseline)", flush=True)
+        # Restore true best from log if higher than baseline
+        if log:
+            log_best = max(
+                (entry.get("best_score", entry["score"]) for entry in log),
+                default=best_score,
+            )
+            if log_best > best_score:
+                best_score = log_best
+        print(f"  (resumed cached baseline, best={best_score:.4f})", flush=True)
     else:
         try:
             baseline_class = load_pipeline_from_code(current_code)

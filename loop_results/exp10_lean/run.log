@@ -1,0 +1,50 @@
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=7)
+  Pipeline source: loop_results/lean_pipeline.py
+
+Evaluating baseline ...
+  Baseline score: 0.5000  (f1=0.5000, mean_tokens=4240, n=10)
+
+Starting search: 100 iterations, eval_n=10
+
+Iter 1/100 | IMPORT ERROR: name 'Any' is not defined — rejected
+Iter   2/100 | score=0.6000 (+0.1000) accepted | best=0.6000 | 313.2s | add _bm25_scores, _detect_q_type, _entity_scores, _extract_entities
+Iter   3/100 | score=0.5000 (-0.1000) rejected | best=0.6000 | 452.2s | add _base_tokens, _build_fact_timeline, _extract_facts, _query_tokens
+Iter   4/100 | score=0.7000 (+0.1000) accepted | best=0.7000 | 321.1s | add _combined_scores, _expand_query_tokens, _format_chunks, _make_chunks, _retrieve_chunks; remove _expand, _format_turns, _retrieve
+Iter   5/100 | score=0.7000 (+0.0000) rejected | best=0.7000 | 975.5s | add _extract_personal_facts, _format_fact_context, _get_relevant_fact_types, _haiku_analyze_query; remove _expand_query_tokens
+Iter   6/100 | score=0.7000 (+0.0000) rejected | best=0.7000 | 580.3s | add _multihop_expand
+Iter   7/100 | score=0.7000 (+0.0000) rejected | best=0.7000 | 458.1s | add _build_fact_timeline, _detect_query_topics, _split_temporal_subqueries
+Iter   8/100 | score=0.6000 (-0.1000) rejected | best=0.7000 | 330.2s | add _entity_intersection_scores, _span_sample_indices
+Iter   9/100 | score=0.8000 (+0.1000) accepted | best=0.8000 | 492.6s | add _build_recent_context
+Iter  10/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 344.4s | add _detect_multi_session, _retrieve_chunks_diverse
+Iter  11/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 352.4s | add _detect_temporal_direction, _tokenize_unigrams_only
+Iter  12/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 317.7s | add _make_bigrams
+Iter  13/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 311.8s | add _stratified_indices
+Iter  14/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 455.7s | add _haiku_query_analysis
+Iter  15/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 452.5s | add _detect_subject, _get_synonym_only_tokens
+Iter  16/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 332.8s | add _format_chunks_chronological
+Iter  17/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 380.2s | add _get_temporal_anchor_turns
+Iter  18/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 660.5s | add _build_fact_store_context, _detect_question_attribute, _extract_personal_facts
+Iter  19/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 596.5s | add _ensure_coverage
+Iter  20/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 437.6s | add _format_chunks_as_timeline
+Iter  21/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 544.9s | add _proximity_scores
+Iter  22/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 554.4s | add attr _RETRIEVAL_K_COUNT, _RETRIEVAL_K_TEMPORAL, content_limit; remove attr v3
+Iter  23/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 445.1s | add _bigram_bm25_scores, _extract_bigrams
+Iter  24/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 536.5s | add _build_conversation_overview, score_fn
+Iter  25/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 548.0s | add _analyze_query_with_llm
+Iter  26/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 431.7s | add _conjunction_boost
+Iter  27/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 400.6s | add attr _ASST_CONTENT_LIMIT, _ASST_FOCUSED_PATTERNS, _ASST_TURN_BOOST; remove attr v3
+Iter 28/100 | IMPORT ERROR: Module does not define a 'ContextPipeline' class — rejected
+Iter  29/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 448.7s | add _extract_structured_facts, _get_relevant_facts
+Iter  30/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 417.5s | add attr _ASST_Q_RE, _ASST_TURN_BOOST_ASST_Q, v4; remove attr v3
+Iter  31/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 369.3s | add _format_turns_chronological, _get_diversity_samples, _get_timeline_samples
+Iter  32/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 377.5s | add _stem
+Iter  33/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 361.9s | add _detect_temporal_direction, _format_chunks_chronological
+Iter  34/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 375.9s | add _bigram_scores, _tokenize_with_stops
+Iter  35/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 467.4s | add _stratified_hit_indices
+Iter  36/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 594.9s | add _analyze_query_haiku
+Iter  37/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 588.5s | add _build_key_facts_section, _build_update_timeline, _extract_facts_from_turn
+Iter  38/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 460.2s | add _detect_temporal_subtype
+Iter  39/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 368.1s | add attr _ASST_Q_KEYWORDS, _ASST_RECOMMENDATION_PATTERNS, _ASST_TURN_BOOST; remove attr v3
+Iter  40/100 | score=0.7000 (-0.1000) rejected | best=0.8000 | 470.5s | add _detect_answer_type

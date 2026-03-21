@@ -80,12 +80,19 @@ class ContextPipeline:
             if observation:
                 self._observations.append(observation)
 
-    def _format_chunk(self, chunk: list[dict], start_idx: int) -> str:
+    @staticmethod
+    def _get_turn(turn, key, default=""):
+        """Access turn data whether it's a dict or an object."""
+        if isinstance(turn, dict):
+            return turn.get(key, default)
+        return getattr(turn, key, default)
+
+    def _format_chunk(self, chunk: list, start_idx: int) -> str:
         lines = []
         for i, turn in enumerate(chunk):
             idx = start_idx + i
-            role = turn.get("role", "user").upper()
-            content = (turn.get("content", "") or "")[:400]
+            role = (self._get_turn(turn, "role", "user") or "user").upper()
+            content = (self._get_turn(turn, "content", "") or "")[:400]
             lines.append(f"[T{idx}] {role}: {content}")
         return "\n".join(lines)
 

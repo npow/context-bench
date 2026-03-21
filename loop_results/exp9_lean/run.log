@@ -1,0 +1,11 @@
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=7)
+  Pipeline source: loop_results/lean_pipeline.py
+
+Evaluating baseline ...
+  Baseline score: 0.5000  (f1=0.5000, mean_tokens=4240, n=10)
+
+Starting search: 100 iterations, eval_n=10
+
+Iter   1/100 | score=0.5000 (+0.0000) rejected | best=0.5000 | 1664.8s | add _bm25_score, _build_working_memory, _classify_question, _entity_scores, _expand_indices, _expand_query_haiku, _extract_facts_rule_based, _format_fact_history_block, _format_fact_summary, _get_fact_history, _get_latest_facts, _merge_and_rank, _relevant_fact_types, _retrieve_multipass; remove _expand, _retrieve

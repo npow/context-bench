@@ -1,0 +1,26 @@
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=7)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+
+Evaluating baseline ...
+  Baseline score: 0.8000  (f1=0.8000, mean_tokens=7470, n=5)
+
+Starting search: 100 iterations, eval_n=5
+
+Iter   1/100 | score=0.4000 (-0.4000) rejected | best=0.8000 | 2357.2s | add _build_knowledge_update_summary, _get_latest_facts_for_entity
+Iter   2/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 1957.1s | add _rerank_candidates
+Iter   3/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 1427.5s | add _apply_position_bias, _detect_position_bias, _get_current_state_block, _get_quartile_tag
+Iter   4/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 2690.7s | add _build_episode_summaries, _build_summary_index, _format_episode_summaries, _retrieve_episode_summaries
+Iter   5/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 2301.4s | add _build_working_memory_hierarchical, pct_label; remove _build_working_memory
+Iter   6/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 3099.3s | add _build_section_summaries, _build_temporal_timeline, _extract_evidence, _fullspan_sample, _get_knowledge_update_block, _retrieve_within_turns, _section_based_retrieval
+Iter   7/100 | score=0.4000 (-0.4000) rejected | best=0.8000 | 1833.6s | add _check_and_refine_retrieval, _get_all_updated_facts, _normalize_relation
+Iter   8/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 1578.4s | add _extract_cot_answer
+Iter   9/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 3068.7s | add _build_entity_threads, _build_named_entity_thread, _build_user_thread, _find_top_entities, _get_entity_thread_block
+Iter  10/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 1595.2s | add _build_fact_evolution, _get_fact_updates_block, _parse_triples_with_position
+Iter  11/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 1639.5s | add attr all_tuples, chunk_number, group_key; remove attr unique
+Iter  12/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 1523.8s | add _add_entity, _collect_latest_for_key, _detect_knowledge_update, _get_latest_facts_block
+Iter  13/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 1650.1s | add _get_latest_entity_facts, _llm_rerank_passages
+Iter  14/100 | score=0.8000 (+0.0000) rejected | best=0.8000 | 2535.6s | add _build_entity_threads, _build_named_entity_thread, _build_user_thread, _ensure_entity_thread, _get_entity_thread_block
+Iter  15/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 1904.4s | add _generate_query_variants, _retrieve_single, _rrf_retrieve; remove _retrieve
+Iter  16/100 | score=0.6000 (-0.2000) rejected | best=0.8000 | 1642.5s | add attr asks_current_state, current_state_kws, er_key; remove attr all_idx, first, indices

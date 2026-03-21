@@ -1,0 +1,10 @@
+   Building context-bench @ file:///Users/npow/code/context-bench
+      Built context-bench @ file:///Users/npow/code/context-bench
+Uninstalled 1 package in 2ms
+Installed 1 package in 6ms
+Traceback (most recent call last):
+  File "/Users/npow/code/context-bench/loop.py", line 847, in <module>
+    main()
+  File "/Users/npow/code/context-bench/loop.py", line 642, in main
+    {**ex, "qa_pairs": ex["qa_pairs"][:max_qa_per_conv]}
+TypeError: 'BenchmarkExample' object is not a mapping

@@ -50,20 +50,26 @@ except ImportError:
     SentenceTransformer = None  # type: ignore[assignment]
 
 
-_STORE_DESCRIPTION = """\
-Available data stores:
+_STORE_DESCRIPTION_TEMPLATE = """\
+Available data stores (connect to them using the provided paths):
 
-1. `semantic` -- A LanceDB table with embedded conversation chunks.
+1. LanceDB semantic store at: {lance_path}
+   Connect: import lancedb; lance_conn = lancedb.connect("{lance_path}"); semantic = lance_conn.open_table("semantic")
    Columns: text (str), vector (embedding), timestamp (str), session_id (str), speaker (str), item_type (str)
-   Usage: results = semantic.search("query text").limit(10).to_list()
+   Search: results = semantic.search("query text").limit(10).to_list()
    Filter: results = semantic.search("query").where("timestamp > '2024-01-01'").limit(10).to_list()
+   Full scan: df = semantic.to_pandas()
 
-2. `db` -- A DuckDB connection (read-only) with structured metadata.
+2. DuckDB structured store at: {duck_path}
+   Connect: import duckdb; db = duckdb.connect("{duck_path}", read_only=True)
    Tables:
      turns(turn_id INTEGER, content TEXT, role TEXT, speaker TEXT, timestamp TEXT, session_id TEXT)
      entities(entity TEXT, entity_type TEXT, turn_id INTEGER, context_snippet TEXT)
      declarations(key TEXT, value TEXT, source_turn_id TEXT, timestamp TEXT)
    Usage: results = db.execute("SELECT * FROM turns WHERE content LIKE '%topic%'").fetchall()
+
+IMPORTANT: You must import lancedb and duckdb and connect to them using the paths above.
+Do NOT assume they are already connected. Always start your code by connecting to the stores.
 """
 
 
@@ -315,7 +321,11 @@ class RLMSystem:
     # ------------------------------------------------------------------
 
     def _query_rlm(self, question: str) -> QueryResult:
-        """Run the RLM loop against the stores."""
+        """Run the RLM loop against the stores.
+
+        Passes file paths (strings) to the RLM, not live objects.
+        The RLM's generated code connects to the stores itself.
+        """
         # Configure dspy
         lm = dspy.LM(
             model=f"openai/{self._model}",
@@ -324,20 +334,24 @@ class RLMSystem:
         )
         dspy.configure(lm=lm)
 
-        # Open DuckDB read-only for the RLM execution
+        # Build context with file paths and sample data
+        lance_path = os.path.join(self._tmpdir, "lance")
+        context = _STORE_DESCRIPTION_TEMPLATE.format(
+            lance_path=lance_path,
+            duck_path=self._duck_path,
+        )
+
+        # Add sample data so the RLM knows what's in the stores
         db_ro = duckdb.connect(self._duck_path, read_only=True)
-
         try:
-            # Build context describing the stores
-            context = _STORE_DESCRIPTION
-
-            # Add sample data so the RLM knows what's there
             try:
                 sample_turns = db_ro.execute(
-                    "SELECT * FROM turns LIMIT 5"
+                    "SELECT turn_id, speaker, timestamp, substr(content, 1, 100) as content_preview FROM turns LIMIT 5"
                 ).fetchall()
                 if sample_turns:
-                    context += f"\nSample turns data:\n{sample_turns}\n"
+                    context += f"\nSample turns data (first 5 of many):\n{sample_turns}\n"
+                total = db_ro.execute("SELECT COUNT(*) FROM turns").fetchone()[0]
+                context += f"Total turns: {total}\n"
             except Exception:
                 pass
 
@@ -346,7 +360,7 @@ class RLMSystem:
                     "SELECT * FROM declarations LIMIT 5"
                 ).fetchall()
                 if sample_decl:
-                    context += f"\nSample declarations data:\n{sample_decl}\n"
+                    context += f"\nSample declarations:\n{sample_decl}\n"
             except Exception:
                 pass
 
@@ -354,46 +368,53 @@ class RLMSystem:
                 entity_count = db_ro.execute(
                     "SELECT COUNT(*) FROM entities"
                 ).fetchone()[0]
-                context += f"\nEntities table has {entity_count} rows.\n"
+                if entity_count > 0:
+                    sample_ent = db_ro.execute(
+                        "SELECT entity, entity_type FROM entities LIMIT 10"
+                    ).fetchall()
+                    context += f"\nEntities ({entity_count} total), sample:\n{sample_ent}\n"
             except Exception:
                 pass
-
-            # Create RLM module. We pass semantic and db as additional inputs.
-            rlm = dspy.RLM(
-                signature="context, question, semantic, db -> answer",
-                max_iterations=self._max_iterations,
-                max_llm_calls=self._max_llm_calls,
-                verbose=True,
-            )
-
-            result = rlm(
-                context=context,
-                question=question,
-                semantic=self._lance_table,
-                db=db_ro,
-            )
-
-            answer = result.answer
-            trajectory = result.trajectory if hasattr(result, "trajectory") else []
-            iterations = len(trajectory) if trajectory else 0
-
-            # Estimate context tokens from trajectory
-            traj_text = json.dumps(trajectory) if trajectory else ""
-            context_tokens = len(traj_text.split())
-
-            return QueryResult(
-                answer=answer,
-                total_latency_ms=0,  # filled by caller
-                context_tokens=context_tokens,
-                details={
-                    "method": "rlm",
-                    "iterations": iterations,
-                    "trajectory": trajectory,
-                    "fallback_triggered": False,
-                },
-            )
         finally:
             db_ro.close()
+
+        # Create RLM module with host interpreter (not WASM) so code can
+        # import native extensions like lancedb and duckdb.
+        from context_bench.systems.host_interpreter import HostInterpreter
+
+        interpreter = HostInterpreter()
+        rlm = dspy.RLM(
+            signature="context, question -> answer",
+            max_iterations=self._max_iterations,
+            max_llm_calls=self._max_llm_calls,
+            verbose=True,
+            interpreter=interpreter,
+        )
+
+        result = rlm(
+            context=context,
+            question=question,
+        )
+
+        answer = result.answer
+        trajectory = result.trajectory if hasattr(result, "trajectory") else []
+        iterations = len(trajectory) if trajectory else 0
+
+        # Estimate context tokens from trajectory
+        traj_text = json.dumps(trajectory) if trajectory else ""
+        context_tokens = len(traj_text.split())
+
+        return QueryResult(
+            answer=answer,
+            total_latency_ms=0,  # filled by caller
+            context_tokens=context_tokens,
+            details={
+                "method": "rlm",
+                "iterations": iterations,
+                "trajectory": trajectory,
+                "fallback_triggered": False,
+            },
+        )
 
     # ------------------------------------------------------------------
     # Fallback: simple semantic search + LLM

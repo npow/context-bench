@@ -1,0 +1,6 @@
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=42)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+
+Evaluating baseline ...

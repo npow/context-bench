@@ -1,0 +1,109 @@
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=42)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+
+Evaluating baseline ...
+  Baseline score: 0.7000  (f1=0.7000, mean_tokens=7274, n=10)
+
+Starting search: 100 iterations, eval_n=10
+
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=42)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+  No checkpoint found — starting fresh
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.7000  (f1=0.7000, mean_tokens=7274, n=10)
+
+Starting search: 100 iterations, eval_n=10
+
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=42)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+  No checkpoint found — starting fresh
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.7000  (f1=0.7000, mean_tokens=7274, n=10)
+
+Starting search: 100 iterations, eval_n=10
+
+Loading dataset: longmemeval_s ...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=42)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+  No checkpoint found — starting fresh
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.7000  (f1=0.7000, mean_tokens=7274, n=10)
+
+Starting search: 100 iterations, eval_n=10
+
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=42)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+  No checkpoint found — starting fresh
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.7000  (f1=0.7000, mean_tokens=7274, n=10)
+
+Starting search: 100 iterations, eval_n=3
+
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=42)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+  No checkpoint found — starting fresh
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.7000  (f1=0.7000, mean_tokens=7274, n=10)
+
+Starting search: 100 iterations, eval_n=3
+
+Iter   1/100 | score=0.0000 (-0.7000) rejected | best=0.7000 | 1651.4s | add _answer_temporal_question_directly, _resolve_coreferences, _resolve_entity_in_query
+Iter   2/100 | score=0.6667 (-0.0333) rejected | best=0.7000 | 1000.5s | add _classify_relation_type, _extract_temporal_dates, _try_direct_answer_from_memory
+Iter   3/100 | score=0.3333 (-0.3667) rejected | best=0.7000 | 2401.4s | add _extract_facts_untyped, _extract_typed_relations, _try_direct_relation_answer; remove _extract_facts
+Iter   4/100 | score=0.3333 (-0.3667) rejected | best=0.7000 | 1160.5s | add _filter_by_relevance
+Iter   5/100 | score=0.6667 (-0.0333) rejected | best=0.7000 | 901.3s | add _answer_temporal_question, _build_pronoun_map, _extract_temporal_dates, _identify_speakers, _resolve_pronouns_in_text
+Iter   6/100 | score=0.6667 (-0.0333) rejected | best=0.7000 | 1028.8s | add _build_entity_sessions_map, _build_session_summaries, _detect_sessions, _get_cross_session_context, _get_session_idx
+Iter   7/100 | score=0.0000 (-0.7000) rejected | best=0.7000 | 648.2s | add _extract_temporal_facts, _rank_passages_by_relevance, _synthesize_answer_multi_strategy
+Iter   8/100 | score=0.6667 (-0.0333) rejected | best=0.7000 | 1438.4s | add _answer_temporal_query_directly, _extract_temporal_facts, _parse_temporal_triples; remove _extract_facts, _parse_triples_into_entity_memory
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=42)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+  Resumed checkpoint: 8 iterations already logged
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.7000  (f1=0.7000, mean_tokens=7274, n=10)
+
+Starting search: 100 iterations, eval_n=3
+
+Iter   9/108 | score=0.6667 (-0.0333) rejected | best=0.7000 | 1893.1s | add _hindsight_batch_scan
+Iter 10/108 | MUTATION ERROR: Generated code has syntax errors after 3 attempts: invalid syntax (<proposed_pipeline>, line 4) — skipping
+Loading dataset: longmemeval_s ...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=42)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+
+Evaluating baseline ...
+  Baseline score: 0.4000  (f1=0.4000, mean_tokens=6969, n=5)
+
+Starting search: 100 iterations, eval_n=5
+
+Iter 1/100 | MUTATION ERROR: Generated code has syntax errors after 3 attempts: unterminated string literal (detected at line 3) (<proposed_pipeline>, line 3) — skipping
+Iter 2/100 | MUTATION ERROR: Generated code has syntax errors after 3 attempts: invalid decimal literal (<proposed_pipeline>, line 11) — skipping
+Iter 3/100 | MUTATION ERROR: Generated code has syntax errors after 3 attempts: unterminated string literal (detected at line 12) (<proposed_pipeline>, line 12) — skipping
+Iter 4/100 | MUTATION ERROR: Generated code has syntax errors after 3 attempts: invalid decimal literal (<proposed_pipeline>, line 7) — skipping
+Iter 5/100 | MUTATION ERROR: Generated code has syntax errors after 3 attempts: invalid decimal literal (<proposed_pipeline>, line 4) — skipping

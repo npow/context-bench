@@ -1,0 +1,5 @@
+{"iteration": 0, "score": 0.4, "best_score": 0.4, "delta": 0.0, "mutation": "add _get_current_facts_block, _get_fact_history_block, _has_fact_updates", "accepted": false, "elapsed_s": 3147.0, "f1": 0.4, "mean_input_tokens": 7670.8, "n": 10}
+{"iteration": 1, "score": 0.4, "delta": 0.0, "mutation": "mutation_error: Function propose_mutation exceeded 600s timeout", "accepted": false, "error": "Function propose_mutation exceeded 600s timeout"}
+{"iteration": 2, "score": 0.4, "delta": 0.0, "mutation": "mutation_error: Function propose_mutation exceeded 600s timeout", "accepted": false, "error": "Function propose_mutation exceeded 600s timeout"}
+{"iteration": 3, "score": 0.4, "delta": 0.0, "mutation": "mutation_error: Function propose_mutation exceeded 900s timeout", "accepted": false, "error": "Function propose_mutation exceeded 900s timeout"}
+{"iteration": 4, "score": 0.0, "best_score": 0.4, "delta": -0.4, "mutation": "add _detect_knowledge_updates, _get_current_state_block, _get_fact_update_history, _retrieve_latest_mentions", "accepted": false, "elapsed_s": 1132.7, "error": "Function evaluate_pipeline exceeded 900s timeout"}

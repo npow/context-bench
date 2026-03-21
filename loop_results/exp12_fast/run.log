@@ -1,0 +1,20 @@
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=7)
+  Pipeline source: loop_results/exp10_lean/best_pipeline_cliproxy.py
+  Resumed checkpoint: 33 iterations already logged
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.8000  (f1=0.8000, mean_tokens=4948, n=10)
+
+Starting search: 100 iterations, eval_n=10
+
+Iter  34/133 | score=0.7000 (-0.1000) rejected | best=0.8000 | 385.4s | add _build_fact_timeline, _detect_temporal_change_question, _temporal_version_scores
+Iter  35/133 | score=0.7000 (-0.1000) rejected | best=0.8000 | 379.2s | add attr focused_context, focused_context_lines, identified_turns; remove attr system_prompt, user_content, v4
+Iter  36/133 | score=0.7000 (-0.1000) rejected | best=0.8000 | 382.2s | add _cooccur_scores, _extract_literal_phrases, _phrase_scores
+Iter  37/133 | score=0.7000 (-0.1000) rejected | best=0.8000 | 355.2s | add _retrieve_focal_turns, _selective_expansion; remove _make_chunks, _retrieve_chunks
+Iter  38/133 | score=0.2000 (-0.6000) rejected | best=0.8000 | 344.7s | add _clean_sentence, _extract_answer
+Iter  39/133 | score=0.7000 (-0.1000) rejected | best=0.8000 | 353.0s | add _detect_negation_or_correction, _resolve_facts; remove _get_relevant_facts
+Iter  40/133 | score=0.8000 (+0.0000) rejected | best=0.8000 | 348.3s | add _build_replacement_map, _get_current_facts, _get_historical_facts; remove _get_relevant_facts
+Iter  41/133 | score=0.7000 (-0.1000) rejected | best=0.8000 | 339.8s | add _build_fact_graph

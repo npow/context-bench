@@ -1,0 +1,14 @@
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=7)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+  Resumed checkpoint: 3 iterations already logged
+
+Evaluating baseline ...
+  (resumed cached baseline)
+  Baseline score: 0.4000  (f1=0.4000, mean_tokens=7666, n=10)
+
+Starting search: 100 iterations, eval_n=10
+
+Iter 4/103 | MUTATION ERROR: Function propose_mutation exceeded 900s timeout — skipping
+Iter   5/103 | score=0.0000 (-0.4000) rejected | best=0.4000 | 1132.7s | add _detect_knowledge_updates, _get_current_state_block, _get_fact_update_history, _retrieve_latest_mentions

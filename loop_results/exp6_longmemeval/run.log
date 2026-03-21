@@ -1,0 +1,11 @@
+Loading dataset: longmemeval_s ...
+  Loaded 500 conversations
+  Split: 400 train / 100 test (seed=7)
+  Pipeline source: loop_results/exp3/best_pipeline.py
+
+Evaluating baseline ...
+  Baseline score: 0.6000  (f1=0.6000, mean_tokens=7306, n=5)
+
+Starting search: 100 iterations, eval_n=5
+
+Iter 1/100 | MUTATION ERROR: Generated code has syntax errors after 3 attempts: invalid syntax (<proposed_pipeline>, line 3) — skipping
