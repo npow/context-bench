@@ -43,6 +43,42 @@ if _SRC.exists() and str(_SRC) not in sys.path:
 
 
 # ---------------------------------------------------------------------------
+# Thread-based timeout wrapper
+# ---------------------------------------------------------------------------
+
+def _run_with_timeout(func, args=(), kwargs=None, timeout=600):
+    """Run func in a daemon thread with a hard timeout."""
+    import threading
+    import queue as _queue
+
+    kwargs = kwargs or {}
+    result_q: _queue.Queue = _queue.Queue()
+
+    def _worker():
+        try:
+            r = func(*args, **kwargs)
+            result_q.put(("ok", r))
+        except Exception as e:
+            result_q.put(("error", e))
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+
+    if t.is_alive():
+        raise TimeoutError(f"Function {func.__name__} exceeded {timeout}s timeout")
+
+    try:
+        status, value = result_q.get_nowait()
+    except _queue.Empty:
+        raise TimeoutError(f"Function {func.__name__} produced no result")
+
+    if status == "error":
+        raise value
+    return value
+
+
+# ---------------------------------------------------------------------------
 # Dynamic pipeline loading
 # ---------------------------------------------------------------------------
 
@@ -666,9 +702,10 @@ def main() -> None:
         # a. Ask the LLM to propose a mutation
         # ----------------------------------------------------------------
         try:
-            candidate_code = mutator.propose_mutation(
-                current_code=current_code,
-                score_history=log,
+            candidate_code = _run_with_timeout(
+                mutator.propose_mutation,
+                args=(current_code, log),
+                timeout=900,  # 15 min max for mutation
             )
         except Exception as exc:
             print(
@@ -716,9 +753,11 @@ def main() -> None:
         # ----------------------------------------------------------------
 
         try:
-            results = evaluate_pipeline(
-                candidate_class, eval_sample, relay_url, model, api_key,
-                tool_relay_url=tool_relay_url, judge_model=judge_model,
+            results = _run_with_timeout(
+                evaluate_pipeline,
+                args=(candidate_class, eval_sample, relay_url, model, api_key),
+                kwargs={"tool_relay_url": tool_relay_url, "judge_model": judge_model},
+                timeout=2700,  # 45 min max for evaluation
             )
             candidate_score = results["score"]
             eval_error = None

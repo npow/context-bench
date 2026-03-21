@@ -85,7 +85,7 @@ class PipelineMutator:
 
     def _build_system_prompt(self) -> str:
         return """\
-You are a research engineer optimising a long-conversation QA pipeline.
+You are a research engineer optimising a long-conversation QA pipeline to beat SOTA.
 
 ## Benchmark: LongMemEval-S
 - 500 examples, each a multi-turn user/assistant conversation (~500 turns avg).
@@ -93,51 +93,47 @@ You are a research engineer optimising a long-conversation QA pipeline.
 single-session-preference (30), temporal-reasoning (133), knowledge-update (78), \
 single-session-assistant (56).
 - Turns are flat (role + content only) -- NO timestamps, NO session_id markers.
-- temporal-reasoning questions ask about ordering/sequence/dates of events.
-- knowledge-update questions test whether the system tracks evolving facts.
-- multi-session questions require synthesising information across distant turns.
+- SOTA: 94.87% (Mastra Observational Memory + gpt-5-mini), 86% (Emergence RAG).
 
-## DIAGNOSTIC: Why the pipeline is stuck at 0.80
-The pipeline gets 8/10 correct. The 2 failures are BOTH temporal-reasoning \
-questions requiring date arithmetic:
-1. "How many days between X and Y?" -- pipeline retrieves turns but the answer \
-model can't compute day counts because turns only have T-indices, not dates.
-2. "How many days ago did I do X?" -- same issue, no absolute dates.
+## SOTA approach (Observational Memory by Mastra):
+- During ingest, an LLM "Observer" compresses conversation into dense dated \
+observations with 3-6x compression. Every turn is observed -- nothing dropped.
+- Three-date temporal model: observation date, referenced date, relative date.
+- At query time, ALL observations are packed into context -- no retrieval needed.
+- Observations are formatted text with turn indices, dates, priority markers.
+- A "Reflector" periodically restructures observations to remove redundancy.
+- Result: 95.5% on temporal-reasoning, 96.2% on knowledge-update.
 
-The pipeline ALREADY handles well: knowledge-update, entity-fact, multi-session, \
-counting, and "not enough information" questions.
+## Current pipeline approach:
+Uses LLM (haiku) to compress turns into observations during ingest, then packs \
+all observations + single sonnet call for answer. This is the right architecture.
 
-## What to fix to break through 0.80:
-1. **Date extraction during ingest (pure Python regex)**: Scan turns for date \
-mentions ("January 5th", "on the 15th", "February 3rd", "last month", "two weeks \
-ago", "today", "yesterday") and store turn_idx -> extracted_date mapping.
-2. **Relative date resolution**: When turn T100 says "last month" and nearby turns \
-mention "March 10", resolve to ~February. Store resolved absolute dates.
-3. **Date annotations in context**: Format retrieved turns as \
-"[T141, ~Jan 15] USER: I bought a smoker today" so the LLM can do date math.
-4. **Temporal prompt hint**: For temporal questions, tell the LLM to use the dates \
-in brackets to compute time differences.
+## Key areas to improve:
+1. **Observation quality**: The observer prompt determines everything. It must \
+capture ALL dates (explicit and relative), ALL facts, ALL knowledge updates, \
+with turn indices for temporal reasoning.
+2. **Temporal anchoring**: Extract and resolve dates. "last month" near a turn \
+mentioning "March 10" -> ~February. Store resolved dates in observations.
+3. **Knowledge-update tracking**: When user says "I got a new job at X" after \
+previously mentioning "I work at Y", the observation must note the change.
+4. **Observation format**: Dense, structured, with priority markers and dates.
+5. **Answer prompt engineering**: Question-type-specific hints (temporal math, \
+knowledge updates, "not enough info" detection).
+6. **Reflection/compression**: If observations are too long, compress further.
 
 ## Your constraints:
-- **Optimise pure LLM-judge accuracy.**
-- You have FULL FREEDOM: rewrite any method, add data structures, improve retrieval, \
-improve prompt engineering, improve context assembly.
-- **ABSOLUTE RULE -- LLM CALL BUDGET**: \
-The ingest() method must contain ZERO calls to self._chat(). \
-The query() method may contain at most ONE call to self._chat() (the final answer). \
-Do NOT add haiku calls for query analysis, fact extraction, re-ranking, or anything. \
-All preprocessing must be pure Python (regex, string matching, TF-IDF, etc.). \
-Any pipeline with self._chat() in ingest() will be automatically rejected. \
-Any pipeline with more than 2 total self._chat() calls will be automatically rejected.
-- Focus on: date extraction regex, better retrieval, better context assembly, \
-better prompt engineering, synonym expansion, entity matching.
+- **Optimise pure LLM-judge accuracy. Use as many LLM calls as needed.**
+- You have FULL FREEDOM to make haiku calls during ingest for observation \
+extraction. Batch turns into chunks of 30-80 and make one haiku call per chunk. \
+At query time, use sonnet for the final answer (and optionally haiku for query \
+analysis or evidence extraction).
+- The pipeline class MUST be named ContextPipeline or aliased as such.
+- The pipeline MUST have: __init__(relay_url, model, api_key, strategy, timeout), \
+reset(), ingest(turns), query(question), last_context_tokens, name.
+- Wrap ALL LLM calls in try/except with retries.
 - Avoid changes already marked rejected in the history.
-- The generated pipeline MUST have robust error handling -- wrap all LLM calls in \
-try/except with retries.
 - CRITICAL OUTPUT FORMAT: Return ONLY the complete modified Python file. \
-NO explanation, NO markdown fences, NO prose before or after the code. \
-The very first character of your response must be "#" (a Python comment). \
-The response must be valid Python that compiles without errors.
+NO explanation, NO markdown fences, NO prose. First character must be "#".
 """
 
     def _build_user_prompt(
