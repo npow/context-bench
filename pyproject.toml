@@ -52,6 +52,10 @@ datasets = [
 rich = ["rich>=13.0.0"]
 mem0 = ["mem0ai>=0.1.0"]
 zep = ["zep-python>=2.0.0"]
+dspy = [
+    "dspy>=2.6.0",
+    "rank-bm25>=0.2.0",
+]
 all = [
     "context-bench[datasets,rich]",
 ]
@@ -60,6 +64,8 @@ all = [
 dev = [
     "pytest>=7.0",
     "context-bench[all]",
+    "dspy>=3.1.3",
+    "rank-bm25>=0.2.2",
 ]
 
 [tool.hatch.build.targets.wheel]

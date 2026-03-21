@@ -385,6 +385,115 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory for result caching. Enables resume on re-run.",
     )
 
+    # --- dspy subcommand ---
+    dspy_parser = subparsers.add_parser(
+        "dspy",
+        help="Benchmark DSPy optimizers across datasets.",
+        description=(
+            "Run a factorial sweep of DSPy optimizers across context-bench "
+            "datasets, tracking compile cost, inference scores, and task "
+            "features for optimizer selection meta-learning."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  context-bench dspy --optimizer miprov2 --dataset hotpotqa --budget light\n"
+            "  context-bench dspy --optimizer gepa --optimizer simba \\\n"
+            "    --dataset gsm8k --dataset mmlu --budget medium \\\n"
+            "    --seed 42 --seed 123 --model claude-haiku-4-5-20251001\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    dspy_parser.add_argument(
+        "--optimizer",
+        action="append",
+        default=None,
+        metavar="NAME",
+        help=(
+            "DSPy optimizer to benchmark (repeatable). "
+            "Available: LabeledFewShot, BootstrapFewShot, "
+            "BootstrapFewShotWithRandomSearch, COPRO, MIPROv2, SIMBA, GEPA. "
+            "Default: all."
+        ),
+    )
+    dspy_parser.add_argument(
+        "--dataset",
+        action="append",
+        default=None,
+        metavar="NAME",
+        help="Dataset to benchmark on (repeatable). Default: all compatible.",
+    )
+    dspy_parser.add_argument(
+        "--budget",
+        action="append",
+        default=None,
+        choices=["light", "medium", "heavy"],
+        help="Budget tier (repeatable). Default: light.",
+    )
+    dspy_parser.add_argument(
+        "--seed",
+        action="append",
+        type=int,
+        default=None,
+        help="Random seed for optimizer (repeatable). Default: [42].",
+    )
+    dspy_parser.add_argument(
+        "--model",
+        default="claude-haiku-4-5-20251001",
+        help="LM model name for DSPy (default: claude-haiku-4-5-20251001).",
+    )
+    dspy_parser.add_argument(
+        "--prompt-model",
+        default=None,
+        help="Separate model for instruction generation (MIPROv2/COPRO/SIMBA).",
+    )
+    dspy_parser.add_argument(
+        "--cache-dir",
+        default=".dspy_cache",
+        metavar="DIR",
+        help="Directory for compiled program cache (default: .dspy_cache).",
+    )
+    dspy_parser.add_argument(
+        "--max-train",
+        type=int,
+        default=500,
+        help="Max training examples per dataset (default: 500).",
+    )
+    dspy_parser.add_argument(
+        "--max-val",
+        type=int,
+        default=200,
+        help="Max validation examples per dataset (default: 200).",
+    )
+    dspy_parser.add_argument(
+        "-n",
+        "--max-examples",
+        type=int,
+        default=None,
+        help="Max test examples per dataset (default: all).",
+    )
+    dspy_parser.add_argument(
+        "--cost-cap",
+        type=float,
+        default=None,
+        help="Abort if estimated cost exceeds this amount in dollars.",
+    )
+    dspy_parser.add_argument(
+        "--compile-only",
+        action="store_true",
+        help="Compile optimizers but skip evaluation.",
+    )
+    dspy_parser.add_argument(
+        "--include-ablations",
+        action="store_true",
+        help="Include GEPA ablation runs (without feedback metric).",
+    )
+    dspy_parser.add_argument(
+        "--output",
+        choices=["table", "json"],
+        default="table",
+        help="Output format (default: table).",
+    )
+
     return parser
 
 
@@ -564,6 +673,91 @@ def _run_memory_subcommand(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# dspy subcommand
+# ---------------------------------------------------------------------------
+
+
+def _run_dspy_subcommand(args: argparse.Namespace) -> None:
+    """Run the DSPy optimizer benchmarking sweep."""
+    from context_bench.dspy_bench.splits import (
+        DATASET_TASK_TYPE,
+        SPLIT_MANIFEST,
+        normalize_dataset_name,
+    )
+    from context_bench.dspy_bench.sweep import SweepConfig, run_sweep
+
+    # Resolve defaults
+    all_optimizers = [
+        "LabeledFewShot", "BootstrapFewShot",
+        "BootstrapFewShotWithRandomSearch", "COPRO",
+        "MIPROv2", "SIMBA", "GEPA",
+    ]
+    optimizers = args.optimizer or all_optimizers
+    datasets = [normalize_dataset_name(d) for d in args.dataset] if args.dataset else list(DATASET_TASK_TYPE.keys())
+    budgets = args.budget or ["light"]
+    seeds = args.seed or [42]
+
+    # Validate dataset names
+    for ds in datasets:
+        if ds not in SPLIT_MANIFEST:
+            raise SystemExit(
+                f"Unknown dataset: '{ds}'. "
+                f"Available: {', '.join(sorted(SPLIT_MANIFEST.keys()))}"
+            )
+
+    config = SweepConfig(
+        optimizers=optimizers,
+        datasets=datasets,
+        budgets=budgets,
+        seeds=seeds,
+        model=args.model,
+        prompt_model=getattr(args, "prompt_model", None),
+        cache_dir=args.cache_dir,
+        max_train=args.max_train,
+        max_val=args.max_val,
+        cost_cap=args.cost_cap,
+        compile_only=args.compile_only,
+        include_ablations=args.include_ablations,
+        n_test=args.max_examples,
+    )
+
+    results = run_sweep(config)
+
+    # Report results
+    completed = [r for r in results if r.status == "completed"]
+    failed = [r for r in results if r.status == "failed"]
+    skipped = [r for r in results if r.status == "skipped"]
+
+    print(f"\nSweep complete: {len(completed)} completed, {len(failed)} failed, {len(skipped)} skipped")
+
+    if args.output == "json":
+        import json
+        output = []
+        for r in results:
+            entry = {
+                "run_key": r.run_key,
+                "optimizer": r.optimizer,
+                "dataset": r.dataset,
+                "budget": r.budget,
+                "seed": r.seed,
+                "program_variant": r.program_variant,
+                "status": r.status,
+                "error": r.error,
+            }
+            if r.compile_meta:
+                entry["compile_meta"] = r.compile_meta
+            output.append(entry)
+        print(json.dumps(output, indent=2, default=str))
+    else:
+        # Table output
+        if completed:
+            print(f"\n{'Optimizer':<35} {'Dataset':<20} {'Budget':<8} {'Seed':<6} {'Status':<10}")
+            print("-" * 80)
+            for r in completed:
+                print(f"{r.optimizer:<35} {r.dataset:<20} {r.budget:<8} {r.seed:<6} {r.status:<10}")
+
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
@@ -576,6 +770,11 @@ def main(argv: list[str] | None = None) -> None:
     # Dispatch to memory subcommand
     if args.subcommand == "memory":
         _run_memory_subcommand(args)
+        return
+
+    # Dispatch to dspy subcommand
+    if args.subcommand == "dspy":
+        _run_dspy_subcommand(args)
         return
 
     # Legacy proxy-benchmark path (no subcommand given)
