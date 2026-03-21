@@ -4,7 +4,7 @@
 #
 # The PipelineMutator reads the current pipeline code and the score
 # history, then asks an LLM for ONE targeted improvement.  It returns
-# the complete modified Python file as a string — ready to be written
+# the complete modified Python file as a string -- ready to be written
 # to disk and dynamically imported by the autoresearch loop.
 #
 # Uses urllib only (no third-party HTTP libraries).
@@ -13,67 +13,20 @@
 from __future__ import annotations
 
 import json
+import re as _re_module
 import time
 import urllib.error
 import urllib.request
 from typing import Any
 
 
-# ---------------------------------------------------------------------------
-# Strategy parameter reference — shown to the agent in its system prompt
-# so it knows exactly what levers it can pull without reading the source.
-# ---------------------------------------------------------------------------
-
-_STRATEGY_REFERENCE = """
-STRATEGY dict keys and their allowed values
--------------------------------------------
-chunk_by          : "turn" | "session"
-                    "turn"    = one retrievable chunk per conversation turn
-                    "session" = group session_size consecutive turns per chunk
-session_size      : int >= 1  (only meaningful when chunk_by="session")
-retrieval_k       : int >= 1  (number of chunks retrieved per query)
-retrieval_method  : "bm25" | "embedding" | "hybrid"
-                    "bm25"      = keyword overlap, zero API cost
-                    "embedding" = semantic vector similarity (requires relay)
-                    "hybrid"    = 0.5*bm25 + 0.5*embedding blend
-context_order     : "relevant_first" | "chronological" | "reverse_chron"
-                    "relevant_first" = highest-scored chunk presented first
-                    "chronological"  = earliest turn in history first
-                    "reverse_chron"  = most-recent turn first
-compression       : "none" | "summarize" | "key_sentences"
-                    "none"          = send raw chunk text to the LLM
-                    "summarize"     = LLM condenses each chunk to 1-2 sentences
-                    "key_sentences" = LLM extracts 1-3 key sentences per chunk
-query_expansion   : True | False
-                    Rewrite the question via LLM before retrieval
-iterative         : True | False
-                    Two-pass retrieval: retrieve → LLM refines query → retrieve again
-max_context_tokens: int >= 100
-                    Hard word-count cap on the context block sent to the final LLM call
-
-The optimisation target is token_efficiency = F1 / (mean_input_words / 1000).
-Higher is better: the pipeline should answer accurately while consuming FEWER tokens.
-"""
-
-
 class PipelineMutator:
-    """Proposes targeted mutations to context_pipeline.py using an LLM.
-
-    The mutator keeps no state between calls — every call to
-    ``propose_mutation`` is a fresh, independent LLM conversation.
-
-    Args:
-        relay_url: Base URL of the OpenAI-compatible relay (no trailing slash).
-        model:     Chat model name.  The prompt is written for a capable model
-                   (e.g. gpt-4o, gpt-4o-mini, claude-3-5-sonnet).
-        api_key:   Bearer token.  Falls back to the OPENAI_API_KEY env var.
-        timeout:   HTTP request timeout in seconds.
-    """
+    """Proposes targeted mutations to context_pipeline.py using an LLM."""
 
     def __init__(
         self,
         relay_url: str,
-        model: str = "claude-sonnet-4-6",
+        model: str = "sonnet",
         api_key: str = "",
         timeout: float = 120.0,
     ) -> None:
@@ -91,26 +44,6 @@ class PipelineMutator:
         current_code: str,
         score_history: list[dict],
     ) -> str:
-        """Ask the LLM for one targeted improvement to context_pipeline.py.
-
-        Args:
-            current_code:  Full text of the current context_pipeline.py.
-            score_history: List of dicts describing past iterations.
-                           Each dict has the shape:
-                           {
-                             "iteration": int,
-                             "score": float,          # token_efficiency
-                             "mutation": str,          # one-line description
-                             "accepted": bool,
-                           }
-                           The list should be in chronological order; the
-                           mutator looks at the last 10 entries.
-
-        Returns:
-            A string containing the complete modified Python file.  The
-            caller is responsible for validating that it is importable
-            before accepting it.
-        """
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(current_code, score_history)
 
@@ -122,14 +55,16 @@ class PipelineMutator:
         last_error: Exception | None = None
         for attempt in range(3):
             if attempt > 0:
-                # Feed the syntax error back so the LLM can fix it
-                fix_prompt = (
-                    f"The code you returned has a syntax error: {last_error}\n"
-                    "Return the complete corrected Python file. No markdown, no explanation."
+                # Fresh single-turn request on retry
+                retry_user = (
+                    f"Your previous attempt had a syntax error: {last_error}\n\n"
+                    "Fix this error and return the COMPLETE Python file. "
+                    "ONLY output valid Python code -- no markdown, no explanation.\n\n"
+                    f"Here is the code that had the error:\n\n{code}\n"
                 )
-                messages = messages[:2] + [
-                    {"role": "assistant", "content": response},
-                    {"role": "user", "content": fix_prompt},
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": retry_user},
                 ]
             response = self._chat(messages)
             code = self._extract_code(response)
@@ -138,6 +73,8 @@ class PipelineMutator:
                 return code
             except SyntaxError as e:
                 last_error = e
+                import sys
+                print(f"  [mutator] attempt {attempt+1} syntax error: {e}", file=sys.stderr, flush=True)
                 continue
 
         raise RuntimeError(f"Generated code has syntax errors after 3 attempts: {last_error}")
@@ -148,63 +85,59 @@ class PipelineMutator:
 
     def _build_system_prompt(self) -> str:
         return """\
-You are a research engineer with one goal: surpass state-of-the-art performance \
-on the LoCoMo long-conversation QA benchmark.
+You are a research engineer optimising a long-conversation QA pipeline.
 
-## Known empirical reference points (LLM-judge accuracy, adversarial excluded):
-- Naive RAG (BM25/embedding over raw turns): ~0.30
-- Full conversation in Claude Sonnet context window (no retrieval): ~0.60
-- Entity triples + coreference + temporal ranking (sota_pipeline): ~0.50
-- MemMachine (episodic memory + timestamped episodes + expand_context=3): ~0.75
-- SOTA: Hindsight + Gemini-3 Pro + TEMPR: 0.90
+## Benchmark: LongMemEval-S
+- 500 examples, each a multi-turn user/assistant conversation (~500 turns avg).
+- 6 question types: single-session-user (70), multi-session (133), \
+single-session-preference (30), temporal-reasoning (133), knowledge-update (78), \
+single-session-assistant (56).
+- Turns are flat (role + content only) -- NO timestamps, NO session_id markers.
+- temporal-reasoning questions ask about ordering/sequence/dates of events.
+- knowledge-update questions test whether the system tracks evolving facts.
+- multi-session questions require synthesising information across distant turns.
 
-YOUR TARGET: exceed 0.75 first, then push toward 0.90. The current pipeline is \
-likely in the 0.50-0.65 range. Every iteration must make a meaningful architectural \
-advance that moves the score by at least +0.05.
+## DIAGNOSTIC: Why the pipeline is stuck at 0.80
+The pipeline gets 8/10 correct. The 2 failures are BOTH temporal-reasoning \
+questions requiring date arithmetic:
+1. "How many days between X and Y?" -- pipeline retrieves turns but the answer \
+model can't compute day counts because turns only have T-indices, not dates.
+2. "How many days ago did I do X?" -- same issue, no absolute dates.
 
-## What the 0.60→0.75 gap requires (MemMachine techniques):
-1. **Timestamped episodic memories**: Store each turn with its source timestamp \
-(date from the conversation). When answering "when did X happen?", the timestamp IS \
-the answer — retrieve the episode and return its timestamp, not just the content.
+The pipeline ALREADY handles well: knowledge-update, entity-fact, multi-session, \
+counting, and "not enough information" questions.
 
-2. **Expand context around retrieved episodes**: When a relevant episode is found, \
-also return the 2-3 turns before and after it. LoCoMo answers often require context \
-surrounding the key turn, not just the turn itself.
+## What to fix to break through 0.80:
+1. **Date extraction during ingest (pure Python regex)**: Scan turns for date \
+mentions ("January 5th", "on the 15th", "February 3rd", "last month", "two weeks \
+ago", "today", "yesterday") and store turn_idx -> extracted_date mapping.
+2. **Relative date resolution**: When turn T100 says "last month" and nearby turns \
+mention "March 10", resolve to ~February. Store resolved absolute dates.
+3. **Date annotations in context**: Format retrieved turns as \
+"[T141, ~Jan 15] USER: I bought a smoker today" so the LLM can do date math.
+4. **Temporal prompt hint**: For temporal questions, tell the LLM to use the dates \
+in brackets to compute time differences.
 
-3. **Relative time resolution**: If a turn from "4 May 2022" says "I went to India \
-last year", resolve that to 2021. Pre-compute absolute dates for all relative references \
-during ingest.
-
-4. **Working memory summary**: Maintain a rolling summary of the conversation that \
-gets updated every N sessions. Use this as a fast lookup for open-domain questions \
-that span the whole conversation.
-
-## What the 0.75→0.90 gap requires:
-1. **Coreference resolution**: Resolve "he", "she", "my friend" to canonical entity \
-names during ingest so facts are findable by person name.
-
-2. **Typed relation triples**: Store facts as (entity, relation, value, turn_idx). \
-Enables precise lookup for "find Caroline's hobbies" or "find where Nate works".
-
-3. **Multi-hop reasoning**: Extract entities from question, retrieve facts about each, \
-reason across them. "Who introduced X to Y?" requires finding who knows both.
-
-4. **Query decomposition**: Break multi-part questions into sub-questions, answer \
-each, synthesise.
-
-6. **Cross-session entity tracking**: Conversations happen across many sessions. \
 ## Your constraints:
-- **Optimise pure LLM-judge accuracy. Token cost is irrelevant.**
-- You have FULL FREEDOM: rewrite any method, add any data structures, make as many \
-LLM calls during ingest or query as needed. The relay supports "haiku" (fast/cheap) \
-and "sonnet" (powerful) — use haiku for extraction/classification, sonnet for reasoning.
-- Implement the specific techniques listed above — they have known empirical impact. \
-Do not invent novel untested approaches when proven techniques haven't been tried yet.
+- **Optimise pure LLM-judge accuracy.**
+- You have FULL FREEDOM: rewrite any method, add data structures, improve retrieval, \
+improve prompt engineering, improve context assembly.
+- **ABSOLUTE RULE -- LLM CALL BUDGET**: \
+The ingest() method must contain ZERO calls to self._chat(). \
+The query() method may contain at most ONE call to self._chat() (the final answer). \
+Do NOT add haiku calls for query analysis, fact extraction, re-ranking, or anything. \
+All preprocessing must be pure Python (regex, string matching, TF-IDF, etc.). \
+Any pipeline with self._chat() in ingest() will be automatically rejected. \
+Any pipeline with more than 2 total self._chat() calls will be automatically rejected.
+- Focus on: date extraction regex, better retrieval, better context assembly, \
+better prompt engineering, synonym expansion, entity matching.
 - Avoid changes already marked rejected in the history.
-- The generated pipeline MUST have robust error handling — wrap all LLM calls in \
-try/except with retries, so a single 503 doesn't crash the evaluation.
-- Return ONLY the complete modified Python file. No explanation, no markdown fences. \
-First character must be "#".
+- The generated pipeline MUST have robust error handling -- wrap all LLM calls in \
+try/except with retries.
+- CRITICAL OUTPUT FORMAT: Return ONLY the complete modified Python file. \
+NO explanation, NO markdown fences, NO prose before or after the code. \
+The very first character of your response must be "#" (a Python comment). \
+The response must be valid Python that compiles without errors.
 """
 
     def _build_user_prompt(
@@ -212,19 +145,14 @@ First character must be "#".
         current_code: str,
         score_history: list[dict],
     ) -> str:
-        # Show only the last 10 iterations to keep the prompt focused.
         recent = score_history[-10:] if len(score_history) > 10 else score_history
 
-        # Separate accepted from rejected so the agent can see both clearly.
         accepted = [h for h in recent if h.get("accepted", False)]
         rejected = [h for h in recent if not h.get("accepted", False)]
 
         history_text = self._format_history(recent)
         rejected_summary = self._format_rejected_summary(rejected)
 
-        # Use the tracked best_score (from accepted iterations) rather than
-        # max(h["score"]) which includes rejected candidates and is inflated
-        # by sampling noise.
         best_score = max(
             (h.get("best_score", h["score"]) for h in score_history), default=0.0
         )
@@ -258,7 +186,7 @@ First character must be "#".
 
     def _format_history(self, history: list[dict]) -> str:
         if not history:
-            return "  (no history yet — this is the first iteration)"
+            return "  (no history yet -- this is the first iteration)"
         lines = []
         for h in history:
             status = "ACCEPTED" if h.get("accepted", False) else "rejected"
@@ -269,7 +197,7 @@ First character must be "#".
             sign = "+" if delta >= 0 else ""
             lines.append(
                 f"  iter {iteration:>3}: score={score:.4f} ({sign}{delta:.4f}) "
-                f"[{status}]  — {mutation}"
+                f"[{status}]  -- {mutation}"
             )
         return "\n".join(lines)
 
@@ -280,16 +208,20 @@ First character must be "#".
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
-    # Code extraction — strip markdown fences if the model adds them
+    # Code extraction
     # ------------------------------------------------------------------
 
     @staticmethod
     def _extract_code(response: str) -> str:
-        """Strip any markdown code fences or prose preamble the model may have added."""
+        """Strip markdown fences or prose preamble the model may have added."""
         text = response.strip()
 
-        # Handle ```python ... ``` or ``` ... ``` blocks.
-        if text.startswith("```"):
+        # Strategy 1: Find the LARGEST ```python ... ``` fenced block.
+        fence_pattern = _re_module.compile(r"```(?:python|py)?\s*\n(.*?)```", _re_module.DOTALL)
+        fences = fence_pattern.findall(text)
+        if fences:
+            text = max(fences, key=len).strip()
+        elif text.startswith("```"):
             lines = text.splitlines()
             start = 1
             end = len(lines)
@@ -297,77 +229,117 @@ First character must be "#".
                 end -= 1
             text = "\n".join(lines[start:end]).strip()
 
-        # If the text still doesn't start with '#', the model added a prose
-        # preamble (e.g. "— Here's my proposal:\n# entity_pipeline.py ...").
-        # Find the first line that looks like the start of a Python file.
-        if not text.startswith("#"):
+        # Strategy 2: Find "class ContextPipeline" and walk backwards.
+        if "class " in text and "Pipeline" in text:
+            lines = text.splitlines()
+            class_line = None
+            for i, line in enumerate(lines):
+                if "class " in line and "Pipeline" in line:
+                    class_line = i
+                    break
+            if class_line is not None:
+                file_start = class_line
+                for i in range(class_line - 1, -1, -1):
+                    stripped = lines[i].strip()
+                    if (stripped == "" or stripped.startswith("#") or
+                        stripped.startswith("from ") or stripped.startswith("import ") or
+                        stripped.startswith("@") or stripped.startswith('"""') or
+                        stripped.startswith("'''") or stripped.startswith("__") or
+                        "=" in stripped):
+                        file_start = i
+                    else:
+                        break
+                text = "\n".join(lines[file_start:]).strip()
+
+        # Strategy 3: Find first # comment or import line
+        if not text.startswith(("#", "from ", "import ", '"""', "'''")):
             lines = text.splitlines()
             for i, line in enumerate(lines):
                 stripped = line.strip()
-                # Python file starts with a comment or a ``` fence containing code
-                if stripped.startswith("#") or stripped.startswith("```"):
-                    if stripped.startswith("```"):
-                        # nested fence — recurse one level
-                        inner = "\n".join(lines[i:])
-                        return PipelineMutator._extract_code(inner)
+                if stripped.startswith(("#", "from ", "import ", '"""', "'''")):
                     text = "\n".join(lines[i:]).strip()
                     break
 
-        # Sanitize unicode characters that are syntactically invalid in Python
-        # but commonly output by LLMs (e.g. → instead of ->, — in comments).
-        text = text.replace("\u2192", "->")   # → arrow  (type hints)
-        text = text.replace("\u2014", "--")   # — em dash (comments)
-        text = text.replace("\u2013", "-")    # – en dash
-        text = text.replace("\u2212", "-")    # − minus sign (numbers)
-        text = text.replace("\u201c", '"')    # " left double quote
-        text = text.replace("\u201d", '"')    # " right double quote
-        text = text.replace("\u2018", "'")    # ' left single quote
-        text = text.replace("\u2019", "'")    # ' right single quote
-        text = text.replace("\u00b7", "*")    # · middle dot (multiply)
-        text = text.replace("\u00d7", "*")    # × multiplication sign
-        text = text.replace("\u00f7", "/")    # ÷ division sign
+        # Sanitize unicode characters
+        text = text.replace("\u2192", "->")   # right arrow
+        text = text.replace("\u2014", "--")   # em dash
+        text = text.replace("\u2013", "-")    # en dash
+        text = text.replace("\u2212", "-")    # minus sign
+        text = text.replace("\u201c", '"')    # left double quote
+        text = text.replace("\u201d", '"')    # right double quote
+        text = text.replace("\u2018", "'")    # left single quote
+        text = text.replace("\u2019", "'")    # right single quote
+        text = text.replace("\u00b7", "*")    # middle dot
+        text = text.replace("\u00d7", "*")    # multiplication sign
+        text = text.replace("\u00f7", "/")    # division sign
+        text = text.replace("\u00b1", "+-")   # plus-minus
+        text = text.replace("\u2264", "<=")   # less-than-or-equal
+        text = text.replace("\u2265", ">=")   # greater-than-or-equal
+        text = text.replace("\u2260", "!=")   # not-equal
+        text = text.replace("\u2026", "...")  # ellipsis
 
         return text
 
     # ------------------------------------------------------------------
-    # HTTP — uses urllib only, no third-party dependencies
+    # HTTP -- cliproxyapi (Anthropic Messages API)
     # ------------------------------------------------------------------
 
-    def _chat(self, messages: list[dict[str, Any]]) -> str:
-        """POST to /v1/chat/completions with retry on transient errors.
+    _MODEL_MAP = {
+        "sonnet": "claude-sonnet-4-5-20250929",
+        "haiku": "claude-haiku-4-5-20251001",
+        "opus": "claude-opus-4-6",
+    }
 
-        Uses temperature=0.7 to encourage diverse exploration of the
-        strategy space across iterations.
-        """
-        url = f"{self._base_url}/v1/chat/completions"
+    def _chat(self, messages: list[dict[str, Any]]) -> str:
+        """Call LLM via cliproxyapi (Anthropic Messages API)."""
+        model_name = self._MODEL_MAP.get(self._model, self._model)
+
+        # Separate system from conversation messages
+        system_text = ""
+        api_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system_text = msg["content"]
+            else:
+                api_messages.append({"role": msg["role"], "content": msg["content"]})
+        if not api_messages:
+            api_messages = [{"role": "user", "content": "Hello"}]
+
+        url = "http://127.0.0.1:8317/v1/messages"
         payload: dict[str, Any] = {
-            "model": self._model,
-            "messages": messages,
-            "temperature": 0.7,
+            "model": model_name,
+            "max_tokens": 16384,
+            "messages": api_messages,
         }
+        if system_text:
+            payload["system"] = system_text
+
         body = json.dumps(payload).encode()
-        headers = {"Content-Type": "application/json"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
+        headers = {
+            "content-type": "application/json",
+            "anthropic-version": "2023-06-01",
+            "x-api-key": "your-api-key-1",
+        }
 
         for attempt in range(3):
-            req = urllib.request.Request(
-                url, data=body, headers=headers, method="POST"
-            )
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             try:
                 with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                     data = json.loads(resp.read().decode())
-                    return data["choices"][0]["message"]["content"]
+                    content = data.get("content", [])
+                    if content and isinstance(content, list):
+                        return content[0].get("text", "").strip()
+                    return ""
             except urllib.error.HTTPError as exc:
-                if exc.code in (429, 500, 502, 503, 504) and attempt < 2:
-                    time.sleep(2 ** attempt)
+                if exc.code in (429, 500, 502, 503, 504, 529) and attempt < 2:
+                    time.sleep(5 * (2 ** attempt))
                     continue
                 raise RuntimeError(
                     f"Mutator HTTP {exc.code}: {exc.reason}"
                 ) from exc
             except urllib.error.URLError as exc:
                 if attempt < 2:
-                    time.sleep(2 ** attempt)
+                    time.sleep(5 * (2 ** attempt))
                     continue
                 raise RuntimeError(
                     f"Mutator connection error: {exc.reason}"
