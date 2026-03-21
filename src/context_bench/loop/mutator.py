@@ -130,6 +130,10 @@ analysis or evidence extraction).
 - The pipeline class MUST be named ContextPipeline or aliased as such.
 - The pipeline MUST have: __init__(relay_url, model, api_key, strategy, timeout), \
 reset(), ingest(turns), query(question), last_context_tokens, name.
+- **CRITICAL**: Do NOT change the _chat() method or _MODEL_MAP. They handle the \
+API correctly. When calling self._chat(), use full model names: \
+"claude-haiku-4-5-20251001" for fast calls, or pass no model arg for the default. \
+NEVER use bare aliases like "haiku" or "sonnet" in _chat() calls.
 - Wrap ALL LLM calls in try/except with retries.
 - Avoid changes already marked rejected in the history.
 - CRITICAL OUTPUT FORMAT: Return ONLY the complete modified Python file. \

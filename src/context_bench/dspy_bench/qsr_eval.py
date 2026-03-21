@@ -100,6 +100,256 @@ class BaselineMultiHopQA(dspy.Module):
         return self.generate_answer(context=collected_context, question=question)
 
 
+class FourStageMultiHopQA(dspy.Module):
+    """4-stage multi-hop QA: decompose → retrieve per sub-Q → reason per hop → synthesize.
+
+    This pipeline has 4 distinct LLM stages, each of which can emit uncertainty.
+    The baseline version runs all 4 stages without QSR.
+    """
+
+    def __init__(self, top_k: int = 3):
+        super().__init__()
+        self.decompose = dspy.ChainOfThought(
+            "question -> sub_question_1, sub_question_2"
+        )
+        self.reason_hop1 = dspy.ChainOfThought(
+            "context, sub_question -> intermediate_answer"
+        )
+        self.reason_hop2 = dspy.ChainOfThought(
+            "context, sub_question, prior_answer -> intermediate_answer"
+        )
+        self.synthesize = dspy.ChainOfThought(
+            "question, intermediate_1, intermediate_2 -> answer"
+        )
+        self.top_k = top_k
+
+    def _bm25_retrieve(self, query: str, passages: list[str]) -> list[str]:
+        if not passages:
+            return []
+        tokenized_corpus = [p.lower().split() for p in passages]
+        bm25 = BM25Okapi(tokenized_corpus)
+        scores = bm25.get_scores(query.lower().split())
+        top_indices = sorted(range(len(scores)), key=lambda i: -scores[i])[: self.top_k]
+        return [passages[i] for i in top_indices]
+
+    def _split_passages(self, context: str) -> list[str]:
+        passages = [
+            s.strip()
+            for s in context.replace(". ", ".\n").split("\n")
+            if len(s.strip()) > 10
+        ]
+        return passages if passages else [context]
+
+    def forward(self, context: str, question: str) -> dspy.Prediction:
+        passages = self._split_passages(context)
+
+        # Stage 1: Decompose question into sub-questions
+        decomp = self.decompose(question=question)
+        sq1 = decomp.sub_question_1 if hasattr(decomp, "sub_question_1") else question
+        sq2 = decomp.sub_question_2 if hasattr(decomp, "sub_question_2") else question
+
+        # Stage 2: Retrieve for each sub-question
+        context_1 = " ".join(self._bm25_retrieve(sq1, passages))
+        context_2 = " ".join(self._bm25_retrieve(sq2, passages))
+
+        # Stage 3: Reason per hop
+        hop1 = self.reason_hop1(context=context_1, sub_question=sq1)
+        hop2 = self.reason_hop2(
+            context=context_2, sub_question=sq2,
+            prior_answer=hop1.intermediate_answer,
+        )
+
+        # Stage 4: Synthesize
+        result = self.synthesize(
+            question=question,
+            intermediate_1=hop1.intermediate_answer,
+            intermediate_2=hop2.intermediate_answer,
+        )
+        return result
+
+
+class _CrossStageConsistencyExtractor:
+    """Emits uncertainty based on cross-stage consistency.
+
+    Instead of running each stage twice (noisy), checks whether the outputs
+    of different stages are consistent with each other:
+    - Does hop2's answer reference information from hop1?
+    - Does the synthesis contradict the intermediates?
+    - Do the sub-questions actually decompose the original question?
+
+    This only emits from the SYNTHESIZE stage, using information accumulated
+    across all prior stages as context for the consistency check.
+    """
+
+    def __init__(self, prior_outputs: dict):
+        self._prior_outputs = prior_outputs
+
+    def extract(self, prediction: dspy.Prediction, inputs: dict) -> tuple[float, dict]:
+        # Get the final answer
+        answer = ""
+        for key in prediction.keys():
+            val = prediction[key]
+            if isinstance(val, str):
+                answer = val.strip().lower()
+                break
+
+        int1 = self._prior_outputs.get("intermediate_1", "").lower()
+        int2 = self._prior_outputs.get("intermediate_2", "").lower()
+
+        # Signal 1: Does the answer contradict the intermediates?
+        # If the answer doesn't share any tokens with either intermediate, that's suspicious
+        from context_bench.metrics.quality import f1_score as _f1
+
+        overlap_1 = _f1(answer, int1) if answer and int1 else 0.0
+        overlap_2 = _f1(answer, int2) if answer and int2 else 0.0
+        avg_overlap = (overlap_1 + overlap_2) / 2.0
+
+        # Signal 2: Do the two intermediates contradict each other?
+        inter_consistency = _f1(int1, int2) if int1 and int2 else 0.5
+
+        # Signal 3: Is either intermediate a refusal?
+        refusal_phrases = ["not provide", "cannot determine", "no information", "not available", "not mentioned", "does not"]
+        int1_refuses = any(p in int1 for p in refusal_phrases)
+        int2_refuses = any(p in int2 for p in refusal_phrases)
+        refusal_signal = 0.5 if (int1_refuses or int2_refuses) else 0.0
+
+        # Combine: low overlap with intermediates + refusals = high uncertainty
+        uncertainty = max(0.05, min(0.95,
+            0.4 * (1.0 - avg_overlap) +
+            0.3 * refusal_signal +
+            0.3 * (1.0 - inter_consistency)
+        ))
+
+        return uncertainty, {
+            "answer_int1_overlap": overlap_1,
+            "answer_int2_overlap": overlap_2,
+            "inter_consistency": inter_consistency,
+            "int1_refuses": int1_refuses,
+            "int2_refuses": int2_refuses,
+            "refusal_signal": refusal_signal,
+        }
+
+
+class QSRFourStageMultiHopQA(dspy.Module):
+    """4-stage multi-hop QA with cross-stage consistency QSR.
+
+    Runs the full pipeline, then checks whether the synthesis is consistent
+    with the intermediate answers. Emits a SINGLE signal from cross-stage
+    analysis rather than noisy per-stage self-consistency.
+
+    This avoids the noise accumulation problem: instead of 4 independent
+    self-consistency checks, there's 1 cross-stage consistency check that
+    captures correlated failure across the pipeline.
+    """
+
+    def __init__(self, top_k: int = 3, threshold: float = 0.40, decay: float = 0.85):
+        super().__init__()
+        self.medium = QuorumMedium(threshold=threshold, decay=decay)
+
+        self.decompose = dspy.ChainOfThought(
+            "question -> sub_question_1, sub_question_2"
+        )
+        self.reason_hop1 = dspy.ChainOfThought(
+            "context, sub_question -> intermediate_answer"
+        )
+        self.reason_hop2 = dspy.ChainOfThought(
+            "context, sub_question, prior_answer -> intermediate_answer"
+        )
+        self._synthesize = dspy.ChainOfThought(
+            "question, intermediate_1, intermediate_2 -> answer"
+        )
+        self.top_k = top_k
+
+    def _bm25_retrieve(self, query: str, passages: list[str]) -> list[str]:
+        if not passages:
+            return []
+        tokenized_corpus = [p.lower().split() for p in passages]
+        bm25 = BM25Okapi(tokenized_corpus)
+        scores = bm25.get_scores(query.lower().split())
+        top_indices = sorted(range(len(scores)), key=lambda i: -scores[i])[: self.top_k]
+        return [passages[i] for i in top_indices]
+
+    def _split_passages(self, context: str) -> list[str]:
+        passages = [
+            s.strip()
+            for s in context.replace(". ", ".\n").split("\n")
+            if len(s.strip()) > 10
+        ]
+        return passages if passages else [context]
+
+    def forward(self, context: str, question: str) -> dspy.Prediction:
+        self.medium.reset()
+        passages = self._split_passages(context)
+
+        # Stage 1: Decompose
+        decomp = self.decompose(question=question)
+        sq1 = decomp.sub_question_1 if hasattr(decomp, "sub_question_1") else question
+        sq2 = decomp.sub_question_2 if hasattr(decomp, "sub_question_2") else question
+
+        # Stage 2: Retrieve
+        context_1 = " ".join(self._bm25_retrieve(sq1, passages))
+        context_2 = " ".join(self._bm25_retrieve(sq2, passages))
+
+        # Stage 3: Reason
+        hop1 = self.reason_hop1(context=context_1, sub_question=sq1)
+        hop2 = self.reason_hop2(
+            context=context_2, sub_question=sq2,
+            prior_answer=hop1.intermediate_answer if hasattr(hop1, "intermediate_answer") else "",
+        )
+
+        int1 = hop1.intermediate_answer if hasattr(hop1, "intermediate_answer") else str(_first_string_field(hop1) or "")
+        int2 = hop2.intermediate_answer if hasattr(hop2, "intermediate_answer") else str(_first_string_field(hop2) or "")
+
+        # Stage 4: Synthesize with cross-stage consistency emitter
+        prior_outputs = {"intermediate_1": int1, "intermediate_2": int2}
+        extractor = _CrossStageConsistencyExtractor(prior_outputs)
+        self.synthesize_emitter = AutoinducerEmitter(
+            module=self._synthesize,
+            medium=self.medium,
+            extractor=extractor,
+            name="cross_stage_check",
+        )
+
+        result = self.synthesize_emitter(
+            question=question,
+            intermediate_1=int1,
+            intermediate_2=int2,
+        )
+
+        concentration = self.medium.concentration
+        fired = concentration >= self.medium.threshold
+
+        qsr_meta = {
+            "fired": fired,
+            "concentration": concentration,
+        }
+
+        if fired:
+            # Cross-stage inconsistency detected — re-synthesize with warning
+            # Tell the model the intermediates may be unreliable and to
+            # use its own knowledge to cross-check
+            cautious_synth = dspy.ChainOfThought(
+                "question, intermediate_1, intermediate_2, warning -> answer"
+            )
+            warning = (
+                "WARNING: The intermediate answers above may be inconsistent or unreliable. "
+                "Cross-check them against your own knowledge before synthesizing. "
+                "If they contradict each other or seem wrong, rely on your knowledge instead."
+            )
+            result = cautious_synth(
+                question=question,
+                intermediate_1=int1,
+                intermediate_2=int2,
+                warning=warning,
+            )
+            qsr_meta["route"] = "cautious_synthesis"
+        else:
+            qsr_meta["route"] = "passthrough"
+
+        result._qsr_meta = qsr_meta
+        return result
+
+
 class _SelfConsistencyExtractor:
     """Extracts uncertainty by comparing two answers to the same question.
 
@@ -120,11 +370,10 @@ class _SelfConsistencyExtractor:
                 answer_1 = val.strip().lower()
                 break
 
-        # Generate answer_2 at temperature=1.0
+        # Generate answer_2 at temperature=1.0 with ALL original kwargs
         try:
             pred_2 = self._answer_module(
-                context=inputs.get("context", ""),
-                question=inputs.get("question", ""),
+                **inputs,
                 config={"temperature": 1.0},
             )
             answer_2 = ""
@@ -258,31 +507,53 @@ class QSRMultiHopQA(dspy.Module):
         }
 
         if fired:
-            # Answers diverged — majority vote from 3 more samples
-            answers = []
-            # Include the two we already have
+            # Answers diverged — re-retrieve with a different query and re-answer
+            # This is the key difference from AlwaysVerify: don't re-sample with
+            # the same context, get DIFFERENT context
             ans_1 = pred.answer if hasattr(pred, "answer") else str(_first_string_field(pred) or "")
-            answers.append(ans_1)
+            answers = [ans_1]
 
-            for _ in range(3):
-                try:
-                    extra = self.generate_answer(
-                        context=collected_context,
-                        question=question,
-                        config={"temperature": 1.0},
-                    )
-                    ans = extra.answer if hasattr(extra, "answer") else str(_first_string_field(extra) or "")
-                    answers.append(ans)
-                except Exception:
-                    pass
+            # Strategy: generate a new query, retrieve different passages, re-answer
+            try:
+                # Ask for a rephrased query
+                new_query_pred = self.generate_query[0](
+                    context=f"Previous answer attempt: {ans_1}. This may be wrong.",
+                    question=question,
+                )
+                new_query = new_query_pred.search_query
+                # Retrieve with new query — may get different passages
+                new_retrieved = self._bm25_retrieve(new_query, passages)
+                new_context = " ".join(new_retrieved)
 
-            # Majority vote
-            if answers:
+                # Answer with new context
+                new_pred = self.generate_answer(
+                    context=new_context,
+                    question=question,
+                )
+                ans_2 = new_pred.answer if hasattr(new_pred, "answer") else str(_first_string_field(new_pred) or "")
+                answers.append(ans_2)
+            except Exception:
+                pass
+
+            # Also get one more sample with original context at temp=1
+            try:
+                extra = self.generate_answer(
+                    context=collected_context,
+                    question=question,
+                    config={"temperature": 1.0},
+                )
+                ans_3 = extra.answer if hasattr(extra, "answer") else str(_first_string_field(extra) or "")
+                answers.append(ans_3)
+            except Exception:
+                pass
+
+            # Majority vote across all answers (original + re-retrieved + temp sample)
+            if len(answers) > 1:
                 counter = Counter(answers)
                 majority, _ = counter.most_common(1)[0]
                 pred = dspy.Prediction(answer=majority)
 
-            qsr_meta["route"] = "majority_vote"
+            qsr_meta["route"] = "re_retrieve_vote"
             qsr_meta["n_samples"] = len(answers)
         else:
             qsr_meta["route"] = "passthrough"
@@ -314,11 +585,11 @@ def _run_program(program: dspy.Module, example: dict[str, Any], model: str) -> d
 
 
 class NoVerificationSystem:
-    """Baseline MultiHopQA, no verification."""
+    """Baseline 4-stage MultiHopQA, no verification."""
 
     def __init__(self, model: str = "claude-haiku-4-5-20251001"):
         self._model = model
-        self._program = BaselineMultiHopQA()
+        self._program = FourStageMultiHopQA()
 
     @property
     def name(self) -> str:
@@ -328,7 +599,7 @@ class NoVerificationSystem:
         pred = _run_program(self._program, example, self._model)
         return {
             "response": pred.answer if hasattr(pred, "answer") else str(_first_string_field(pred) or ""),
-            "lm_calls": 1 + self._program.max_hops,  # query hops + answer
+            "lm_calls": 4,  # decompose + hop1 + hop2 + synthesize
         }
 
 
@@ -337,7 +608,7 @@ class AlwaysVerifySystem:
 
     def __init__(self, model: str = "claude-haiku-4-5-20251001", n_samples: int = 3):
         self._model = model
-        self._program = BaselineMultiHopQA()
+        self._program = FourStageMultiHopQA()
         self._n_samples = n_samples
 
     @property
@@ -347,54 +618,53 @@ class AlwaysVerifySystem:
     def process(self, example: dict[str, Any]) -> dict[str, Any]:
         lm = _make_lm(self._model)
         with dspy.context(lm=lm):
-            # Run retrieval hops once
-            passages = [
-                s.strip()
-                for s in example["context"].replace(". ", ".\n").split("\n")
-                if len(s.strip()) > 10
-            ]
-            if not passages:
-                passages = [example["context"]]
+            passages = self._program._split_passages(example["context"])
 
-            collected_context = ""
-            for hop in range(self._program.max_hops):
-                query = self._program.generate_query[hop](
-                    context=collected_context or example["context"],
-                    question=example["question"],
-                ).search_query
-                retrieved = self._program._bm25_retrieve(query, passages)
-                collected_context = " ".join(retrieved)
+            # Run decompose + retrieve + reason once
+            decomp = self._program.decompose(question=example["question"])
+            sq1 = decomp.sub_question_1 if hasattr(decomp, "sub_question_1") else example["question"]
+            sq2 = decomp.sub_question_2 if hasattr(decomp, "sub_question_2") else example["question"]
 
-            # Re-sample answer N times
+            context_1 = " ".join(self._program._bm25_retrieve(sq1, passages))
+            context_2 = " ".join(self._program._bm25_retrieve(sq2, passages))
+
+            hop1 = self._program.reason_hop1(context=context_1, sub_question=sq1)
+            hop2 = self._program.reason_hop2(
+                context=context_2, sub_question=sq2,
+                prior_answer=hop1.intermediate_answer if hasattr(hop1, "intermediate_answer") else "",
+            )
+
+            int1 = hop1.intermediate_answer if hasattr(hop1, "intermediate_answer") else str(_first_string_field(hop1) or "")
+            int2 = hop2.intermediate_answer if hasattr(hop2, "intermediate_answer") else str(_first_string_field(hop2) or "")
+
+            # Re-sample synthesize step N times
             answers = []
-            predictions = []
             for _ in range(self._n_samples):
-                pred = self._program.generate_answer(
-                    context=collected_context,
+                pred = self._program.synthesize(
                     question=example["question"],
+                    intermediate_1=int1,
+                    intermediate_2=int2,
                     config={"temperature": 1.0},
                 )
-                predictions.append(pred)
                 ans = pred.answer if hasattr(pred, "answer") else str(_first_string_field(pred) or "")
                 answers.append(ans)
 
-            # Majority vote
             counter = Counter(answers)
             majority, _ = counter.most_common(1)[0]
 
         return {
             "response": majority,
-            "lm_calls": self._program.max_hops + self._n_samples,
+            "lm_calls": 3 + self._n_samples,  # decompose + 2 hops + N synth
         }
 
 
 class PerAgentThresholdSystem:
-    """Fire verification when the answer step shows self-inconsistency.
+    """Fire verification when the SYNTHESIZE step shows self-inconsistency.
 
-    This is the per-agent analog of QSR: instead of accumulating signals
-    across a medium, it checks self-consistency on the answer step alone.
-    If the two answers diverge, it majority-votes from 3 more samples.
-    Same signal, no accumulation — the direct comparison for QSR.
+    Per-agent analog of QSR: checks self-consistency only on the final
+    synthesize step (one agent). Does NOT accumulate signals across
+    decompose/reason stages. If the two synthesis answers diverge,
+    majority-votes from 3 more samples.
     """
 
     def __init__(
@@ -403,7 +673,7 @@ class PerAgentThresholdSystem:
         n_samples: int = 3,
     ):
         self._model = model
-        self._program = BaselineMultiHopQA()
+        self._program = FourStageMultiHopQA()
         self._n_samples = n_samples
 
     @property
@@ -413,53 +683,52 @@ class PerAgentThresholdSystem:
     def process(self, example: dict[str, Any]) -> dict[str, Any]:
         lm = _make_lm(self._model)
         with dspy.context(lm=lm):
-            passages = [
-                s.strip()
-                for s in example["context"].replace(". ", ".\n").split("\n")
-                if len(s.strip()) > 10
-            ]
-            if not passages:
-                passages = [example["context"]]
+            passages = self._program._split_passages(example["context"])
 
-            collected_context = ""
-            for hop in range(self._program.max_hops):
-                pred = self._program.generate_query[hop](
-                    context=collected_context or example["context"],
-                    question=example["question"],
-                )
-                retrieved = self._program._bm25_retrieve(pred.search_query, passages)
-                collected_context = " ".join(retrieved)
+            # Run full 4-stage pipeline
+            decomp = self._program.decompose(question=example["question"])
+            sq1 = decomp.sub_question_1 if hasattr(decomp, "sub_question_1") else example["question"]
+            sq2 = decomp.sub_question_2 if hasattr(decomp, "sub_question_2") else example["question"]
 
-            lm_calls = self._program.max_hops
+            context_1 = " ".join(self._program._bm25_retrieve(sq1, passages))
+            context_2 = " ".join(self._program._bm25_retrieve(sq2, passages))
 
-            # Generate answer once
-            pred_1 = self._program.generate_answer(
-                context=collected_context,
+            hop1 = self._program.reason_hop1(context=context_1, sub_question=sq1)
+            hop2 = self._program.reason_hop2(
+                context=context_2, sub_question=sq2,
+                prior_answer=hop1.intermediate_answer if hasattr(hop1, "intermediate_answer") else "",
+            )
+
+            int1 = hop1.intermediate_answer if hasattr(hop1, "intermediate_answer") else str(_first_string_field(hop1) or "")
+            int2 = hop2.intermediate_answer if hasattr(hop2, "intermediate_answer") else str(_first_string_field(hop2) or "")
+
+            lm_calls = 3  # decompose + 2 hops
+
+            # Self-consistency on synthesize step ONLY (per-agent, no accumulation)
+            pred_1 = self._program.synthesize(
                 question=example["question"],
+                intermediate_1=int1, intermediate_2=int2,
             )
             ans_1 = pred_1.answer if hasattr(pred_1, "answer") else str(_first_string_field(pred_1) or "")
             lm_calls += 1
 
-            # Self-consistency check: generate answer again at temperature=1.0
-            pred_2 = self._program.generate_answer(
-                context=collected_context,
+            pred_2 = self._program.synthesize(
                 question=example["question"],
+                intermediate_1=int1, intermediate_2=int2,
                 config={"temperature": 1.0},
             )
             ans_2 = pred_2.answer if hasattr(pred_2, "answer") else str(_first_string_field(pred_2) or "")
             lm_calls += 1
 
-            # Compare
             diverged = _normalize_for_comparison(ans_1) != _normalize_for_comparison(ans_2)
 
             if diverged:
-                # Majority vote from 3 more samples (5 total)
                 answers = [ans_1, ans_2]
                 for _ in range(self._n_samples):
                     try:
-                        extra = self._program.generate_answer(
-                            context=collected_context,
+                        extra = self._program.synthesize(
                             question=example["question"],
+                            intermediate_1=int1, intermediate_2=int2,
                             config={"temperature": 1.0},
                         )
                         ans = extra.answer if hasattr(extra, "answer") else str(_first_string_field(extra) or "")
@@ -470,30 +739,22 @@ class PerAgentThresholdSystem:
 
                 counter = Counter(answers)
                 majority, _ = counter.most_common(1)[0]
-                return {
-                    "response": majority,
-                    "lm_calls": lm_calls,
-                    "per_agent_fired": True,
-                }
+                return {"response": majority, "lm_calls": lm_calls, "per_agent_fired": True}
             else:
-                return {
-                    "response": ans_1,
-                    "lm_calls": lm_calls,
-                    "per_agent_fired": False,
-                }
+                return {"response": ans_1, "lm_calls": lm_calls, "per_agent_fired": False}
 
 
 class QSRSystem:
-    """Full Quorum Sensing Router."""
+    """Full Quorum Sensing Router with 4-stage pipeline."""
 
     def __init__(
         self,
         model: str = "claude-haiku-4-5-20251001",
-        threshold: float = 0.35,
-        decay: float = 0.85,
+        threshold: float = 0.20,
+        decay: float = 0.90,
     ):
         self._model = model
-        self._program = QSRMultiHopQA(threshold=threshold, decay=decay)
+        self._program = QSRFourStageMultiHopQA(threshold=threshold, decay=decay)
 
     @property
     def name(self) -> str:
@@ -504,18 +765,19 @@ class QSRSystem:
         answer = pred.answer if hasattr(pred, "answer") else str(_first_string_field(pred) or "")
         qsr_meta = getattr(pred, "_qsr_meta", {})
 
-        # Cost: hops + answer + consistency check (1 extra call)
-        lm_calls = self._program.max_hops + 2  # hops + answer + consistency check
+        # Cost: 4 stages × 2 (one original + one consistency check) + verification samples
+        lm_calls = 8  # 4 stages × 2 calls each (original + consistency)
         route = qsr_meta.get("route", "passthrough")
         if route == "majority_vote":
-            lm_calls += qsr_meta.get("n_samples", 3) - 1  # extra samples beyond the 2 we already have
+            lm_calls += qsr_meta.get("n_samples", 3) - 1
 
         return {
             "response": answer,
             "lm_calls": lm_calls,
             "qsr_fired": qsr_meta.get("fired", False),
+            "qsr_fired_early": qsr_meta.get("fired_early", False),
             "qsr_concentration": qsr_meta.get("concentration", 0.0),
-            "qsr_consistency_uncertainty": qsr_meta.get("consistency_uncertainty", 0.0),
+            "qsr_concentration_before_synth": qsr_meta.get("concentration_before_synth", 0.0),
             "qsr_route": route,
         }
 
@@ -534,7 +796,7 @@ class OracleVerificationSystem:
         n_samples: int = 3,
     ):
         self._model = model
-        self._program = BaselineMultiHopQA()
+        self._program = FourStageMultiHopQA()
         self._wrong_ids = wrong_ids or set()
         self._n_samples = n_samples
 
@@ -551,31 +813,32 @@ class OracleVerificationSystem:
 
         lm = _make_lm(self._model)
         with dspy.context(lm=lm):
-            passages = [
-                s.strip()
-                for s in example["context"].replace(". ", ".\n").split("\n")
-                if len(s.strip()) > 10
-            ]
-            if not passages:
-                passages = [example["context"]]
+            passages = self._program._split_passages(example["context"])
 
-            collected_context = ""
-            for hop in range(self._program.max_hops):
-                query = self._program.generate_query[hop](
-                    context=collected_context or example["context"],
-                    question=example["question"],
-                ).search_query
-                retrieved = self._program._bm25_retrieve(query, passages)
-                collected_context = " ".join(retrieved)
+            decomp = self._program.decompose(question=example["question"])
+            sq1 = decomp.sub_question_1 if hasattr(decomp, "sub_question_1") else example["question"]
+            sq2 = decomp.sub_question_2 if hasattr(decomp, "sub_question_2") else example["question"]
 
-            lm_calls = self._program.max_hops
+            context_1 = " ".join(self._program._bm25_retrieve(sq1, passages))
+            context_2 = " ".join(self._program._bm25_retrieve(sq2, passages))
+
+            hop1 = self._program.reason_hop1(context=context_1, sub_question=sq1)
+            hop2 = self._program.reason_hop2(
+                context=context_2, sub_question=sq2,
+                prior_answer=hop1.intermediate_answer if hasattr(hop1, "intermediate_answer") else "",
+            )
+
+            int1 = hop1.intermediate_answer if hasattr(hop1, "intermediate_answer") else str(_first_string_field(hop1) or "")
+            int2 = hop2.intermediate_answer if hasattr(hop2, "intermediate_answer") else str(_first_string_field(hop2) or "")
+
+            lm_calls = 3  # decompose + 2 hops
 
             if should_verify:
                 answers = []
                 for _ in range(self._n_samples):
-                    pred = self._program.generate_answer(
-                        context=collected_context,
+                    pred = self._program.synthesize(
                         question=example["question"],
+                        intermediate_1=int1, intermediate_2=int2,
                         config={"temperature": 1.0},
                     )
                     ans = pred.answer if hasattr(pred, "answer") else str(_first_string_field(pred) or "")
@@ -584,15 +847,11 @@ class OracleVerificationSystem:
                 counter = Counter(answers)
                 majority, _ = counter.most_common(1)[0]
                 lm_calls += self._n_samples
-                return {
-                    "response": majority,
-                    "lm_calls": lm_calls,
-                    "oracle_verified": True,
-                }
+                return {"response": majority, "lm_calls": lm_calls, "oracle_verified": True}
             else:
-                pred = self._program.generate_answer(
-                    context=collected_context,
+                pred = self._program.synthesize(
                     question=example["question"],
+                    intermediate_1=int1, intermediate_2=int2,
                 )
                 lm_calls += 1
                 return {
@@ -1033,8 +1292,8 @@ def main() -> None:
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.35,
-        help="QSR quorum threshold (default: 0.35).",
+        default=0.20,
+        help="QSR quorum threshold (default: 0.20).",
     )
     parser.add_argument(
         "--decay",

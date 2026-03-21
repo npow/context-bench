@@ -124,7 +124,7 @@ class ContextPipeline:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                model="haiku",
+                model="claude-haiku-4-5-20251001",
             )
         except Exception:
             # Fallback: return raw chunk summary
@@ -220,6 +220,10 @@ class ContextPipeline:
     # HTTP -- Anthropic Messages API via cliproxyapi
     # ------------------------------------------------------------------
 
+    # IMPORTANT: Use full model names. Do NOT use aliases like "haiku" or "sonnet".
+    # The API requires full model IDs. If you add a new _chat call, use:
+    #   model="claude-haiku-4-5-20251001" for fast/cheap calls
+    #   model="claude-sonnet-4-5-20250929" for powerful calls
     _MODEL_MAP = {
         "sonnet": "claude-sonnet-4-5-20250929",
         "haiku": "claude-haiku-4-5-20251001",
@@ -233,6 +237,9 @@ class ContextPipeline:
     ) -> str:
         model_name = model or self._model
         model_name = self._MODEL_MAP.get(model_name, model_name)
+        # Ensure we never send a bare alias to the API
+        if model_name in ("sonnet", "haiku", "opus"):
+            model_name = self._MODEL_MAP.get(model_name, "claude-sonnet-4-5-20250929")
 
         # Separate system message from conversation messages
         system_text = ""
