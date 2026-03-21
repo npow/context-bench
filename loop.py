@@ -737,6 +737,18 @@ def main() -> None:
             })
             continue
 
+        # Post-mutation fixup: ensure model aliases are resolved to full IDs
+        # Mutations often break _MODEL_MAP or use bare "haiku"/"sonnet" aliases
+        candidate_code = candidate_code.replace(
+            'model="haiku"', 'model="claude-haiku-4-5-20251001"'
+        ).replace(
+            "model='haiku'", "model='claude-haiku-4-5-20251001'"
+        ).replace(
+            'model="sonnet"', 'model="claude-sonnet-4-5-20250929"'
+        ).replace(
+            "model='sonnet'", "model='claude-sonnet-4-5-20250929'"
+        )
+
         # Characterise what changed for the log
         mutation_summary = _summarise_mutation(current_code, candidate_code)
 

@@ -3,23 +3,23 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![CI](https://github.com/npow/context-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/npow/context-bench/actions/workflows/ci.yml)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![Docs](https://img.shields.io/badge/docs-mintlify-18a34a?style=flat-square)](https://mintlify.com/npow/context-bench)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-**Benchmark any system that transforms LLM context.**
+**Benchmark any system that transforms LLM context — plus a memory system evaluation framework and an autoresearch loop.**
 
-Prompt compressors, memory managers, context stuffers, RAG rerankers — if it touches the context window before an LLM sees it, context-bench measures how well it works and what it costs.
+Prompt compressors, memory managers, context stuffers, RAG rerankers, stateful memory systems — if it touches the context window before an LLM sees it, context-bench measures how well it works and what it costs.
 
 ---
 
 ## Why context-bench?
 
-You built (or bought) something that modifies LLM context. Now you need to answer:
-
 - **Does compression destroy information?** Measure quality with F1, exact match, and pass rate against ground-truth QA datasets.
 - **Is the cost worth it?** Track compression ratio and cost-per-successful-completion side by side.
 - **Which approach wins?** Run multiple systems on the same dataset in one call and get a comparison table.
+- **How good is your memory system?** Evaluate stateful memory (ingest → query) on LoCoMo and LongMemEval benchmarks with LLM-as-judge scoring.
+- **Can an LLM improve the pipeline?** The autoresearch loop uses Claude to iteratively mutate and improve retrieval pipelines.
 
-context-bench gives you a **single CLI command** (or Python `evaluate()` call) that runs your system against a dataset, scores every example, and aggregates the results — no boilerplate, no framework lock-in.
+---
 
 ## Quick start
 
@@ -27,7 +27,7 @@ context-bench gives you a **single CLI command** (or Python `evaluate()` call) t
 uv sync
 ```
 
-Benchmark [Kompact](https://github.com/npow/kompact) in **one command**:
+### Benchmark a proxy
 
 ```bash
 # Start your proxy
@@ -37,7 +37,7 @@ uv run kompact proxy --port 7878
 context-bench --proxy http://localhost:7878 --dataset hotpotqa -n 50
 ```
 
-Compare two proxies head-to-head:
+### Compare two proxies head-to-head
 
 ```bash
 context-bench \
@@ -46,7 +46,16 @@ context-bench \
   --dataset hotpotqa -n 50
 ```
 
-Multiple datasets, JSON output, custom model:
+### Evaluate memory systems
+
+```bash
+context-bench memory \
+  --system naive --system embedding --system rlm \
+  --relay http://localhost:18082 \
+  --dataset locomo -n 10
+```
+
+### Multiple datasets, JSON output, custom model
 
 ```bash
 context-bench \
@@ -54,12 +63,6 @@ context-bench \
   --dataset hotpotqa --dataset gsm8k \
   --model claude-sonnet-4-5-20250929 \
   --output json -n 100
-```
-
-Use a local JSONL file:
-
-```bash
-context-bench --proxy http://localhost:7878 --dataset ./my_data.jsonl
 ```
 
 ### CLI reference
@@ -101,26 +104,7 @@ $ context-bench \
 *1,431 examples evaluated*
 ```
 
-### Python API
-
-For full control, use the Python API directly:
-
-```python
-from context_bench import OpenAIProxy, evaluate
-from context_bench.evaluators import AnswerQuality
-from context_bench.metrics import MeanScore, PassRate, Latency
-
-kompact = OpenAIProxy("http://localhost:7878", model="claude-sonnet-4-5-20250929", name="kompact")
-result = evaluate(
-    systems=[kompact],
-    dataset=your_dataset,
-    evaluators=[AnswerQuality()],
-    metrics=[MeanScore(score_field="f1"), PassRate(score_field="f1"), Latency()],
-    max_workers=4,           # concurrent execution
-    cache_dir=".cache/",     # resume on re-run
-)
-print(result.summary)
-```
+---
 
 ## How it works
 
@@ -141,78 +125,201 @@ flowchart LR
 
 All interfaces are [typing.Protocol](https://docs.python.org/3/library/typing.html#typing.Protocol) — implement the methods, don't subclass anything.
 
-## Benchmark a proxy
-
-The CLI wraps `OpenAIProxy` + `AnswerQuality` + sensible metrics. For custom evaluators or SDK-based systems, use the Python API.
-
-### [Kompact](https://github.com/npow/kompact)
-
-```bash
-uv run kompact proxy --port 7878
-context-bench --proxy http://localhost:7878 --dataset hotpotqa -n 50
-```
-
-### [Headroom](https://github.com/chopratejas/headroom)
-
-```bash
-pip install "headroom-ai[proxy]"
-headroom proxy --port 8787
-context-bench --proxy http://localhost:8787 --dataset hotpotqa -n 50
-```
-
-### Compare Kompact vs Headroom
-
-```bash
-context-bench \
-  --proxy http://localhost:7878 --name kompact \
-  --proxy http://localhost:8787 --name headroom \
-  --dataset hotpotqa -n 50
-```
-
-### [Compresr](https://compresr.ai/)
-
-Compresr uses a Python SDK instead of a proxy, so wrap it in a custom system:
+### Python API
 
 ```python
-from compresr import CompressionClient
+from context_bench import OpenAIProxy, evaluate
+from context_bench.evaluators import AnswerQuality
+from context_bench.metrics import MeanScore, PassRate, Latency
 
-class CompresrSystem:
-    name = "compresr"
-
-    def __init__(self, api_key):
-        self.client = CompressionClient(api_key=api_key)
-
-    def process(self, example):
-        compressed = self.client.generate(
-            context=example["context"],
-            question=example.get("question", ""),
-        )
-        return {**example, "context": compressed}
-```
-
-### Any OpenAI-compatible endpoint
-
-```python
-OpenAIProxy(
-    base_url="http://localhost:8080",
-    model="gpt-4",
-    api_key="sk-...",              # or set OPENAI_API_KEY env var
-    system_prompt="Be concise.",   # prepended as system message
-    extra_body={"temperature": 0}, # any additional request params
+kompact = OpenAIProxy("http://localhost:7878", model="claude-sonnet-4-5-20250929", name="kompact")
+result = evaluate(
+    systems=[kompact],
+    dataset=your_dataset,
+    evaluators=[AnswerQuality()],
+    metrics=[MeanScore(score_field="f1"), PassRate(score_field="f1"), Latency()],
+    max_workers=4,
+    cache_dir=".cache/",
 )
+print(result.summary)
+result.to_json()
+result.to_dataframe()  # requires pandas
 ```
 
-### Export results
+---
+
+## Memory system evaluation
+
+context-bench includes a dedicated framework for evaluating **stateful memory systems** — systems that ingest conversation history, documents, or events and answer questions about them.
+
+### MemorySystem protocol
 
 ```python
-result.to_json()          # JSON string
-result.to_dataframe()     # pandas DataFrame (requires pandas)
-result.filter(system="headroom")  # filter to one system
+from context_bench.memory_types import Item, IngestResult, QueryResult
+
+class MemorySystem(Protocol):
+    @property
+    def name(self) -> str: ...
+    def reset(self) -> None: ...
+    def ingest(self, items: list[Item]) -> IngestResult: ...
+    def query(self, question: str, budget: int | None = None) -> QueryResult: ...
 ```
 
-## Built-in datasets (42)
+The runner calls `reset()` between examples, `ingest()` to load items, then `query()` for each benchmark question.
 
-All HuggingFace datasets require `pip install -e ".[datasets]"` (or `uv sync --extra datasets`).
+### Item types (tagged union)
+
+| Type | Fields | Use case |
+|------|--------|----------|
+| `ConversationTurn` | content, role, timestamp, speaker, session_id | Chat history |
+| `DocumentChunk` | content, document_id, position, source | RAG documents |
+| `PlatformEvent` | content, platform, timestamp, author, channel | Slack, Linear, Git events |
+| `Declaration` | key, value, source_turn_id | User preferences, facts |
+
+### Built-in memory systems
+
+| System | Strategy | Dependencies |
+|--------|----------|-------------|
+| `NaiveMemorySystem` | Full conversation history stuffed into prompt | — |
+| `EmbeddingSystem` | Semantic search via sentence-transformers | sentence-transformers |
+| `RLMSystem` | Multi-strategy retrieval (semantic + keyword + entity) + LLM answering | lancedb, duckdb, sentence-transformers |
+| `Mem0System` | Mem0 managed memory with relay routing | mem0ai |
+| `ZepSystem` | Zep/Graphiti temporal knowledge graph | zep-python |
+
+### Memory benchmarks
+
+| CLI name | Dataset | Description |
+|----------|---------|-------------|
+| `locomo` | [LoCoMo](https://huggingface.co/datasets/snap-research/LoCoMo) | Long-conversation QA with temporal, multi-hop, and adversarial questions |
+| `longmemeval` | [LongMemEval](https://huggingface.co/datasets/LongMemEval) | Multi-session memory QA |
+
+### Running memory evaluation
+
+```bash
+# Compare naive, embedding, and RLM systems on LoCoMo
+context-bench memory \
+  --system naive --system embedding --system rlm \
+  --relay http://localhost:18082 \
+  --dataset locomo -n 10
+
+# Standalone benchmark scripts
+uv run python3 run_locomo_bench.py
+uv run python3 run_longmemeval_m.py
+```
+
+### Memory-specific evaluators
+
+| Evaluator | Scores | Description |
+|-----------|--------|-------------|
+| `MemoryJudge` | `judge_score` | LLM-as-judge for memory recall quality |
+| `LLMJudgeLoCoMo` | `judge_score` | LoCoMo-specific scoring with evidence matching |
+| `FalseMemoryRate` | `false_memory_rate` | Detects hallucinated/fabricated memories |
+
+---
+
+## Autoresearch loop
+
+context-bench includes an **autoresearch loop** that uses Claude to iteratively improve a retrieval pipeline on long-conversation QA benchmarks.
+
+### How it works
+
+1. Start from a strong baseline pipeline (`sota_pipeline.py`)
+2. An LLM (Claude Sonnet) reads the current pipeline source + score history
+3. It proposes one **architectural improvement** (coreference resolution, temporal ranking, multi-hop retrieval, etc.)
+4. The new pipeline is evaluated on held-out conversations
+5. If F1 improves, the new pipeline becomes the baseline — otherwise revert
+6. Repeat for N iterations
+
+### Running the loop
+
+```bash
+uv run python3 loop.py \
+  --relay http://localhost:18082 \
+  --model sonnet \
+  --dataset locomo \
+  --iterations 50 \
+  --eval-n 2 \
+  --max-qa-per-conv 5 \
+  --seed 42 \
+  --output-dir loop_results/ \
+  --pipeline-path src/context_bench/pipeline/sota_pipeline.py
+
+# Resume after a crash
+uv run python3 loop.py ... --resume
+```
+
+### loop.py flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--relay URL` | *(required)* | OpenAI-compatible relay URL |
+| `--model NAME` | `sonnet` | Model for both mutation and answering |
+| `--dataset NAME` | `locomo` | Dataset to optimize on |
+| `--iterations N` | `50` | Max mutation iterations |
+| `--eval-n N` | `2` | Number of conversations to evaluate per iteration |
+| `--max-qa-per-conv N` | `5` | QA pairs sampled per conversation |
+| `--seed N` | `42` | Random seed for reproducible splits |
+| `--output-dir DIR` | *(required)* | Directory for results, checkpoints, logs |
+| `--pipeline-path PATH` | *(required)* | Starting pipeline `.py` file |
+| `--resume` | `False` | Resume from last checkpoint in `--output-dir` |
+
+### Overnight watchdog
+
+```bash
+bash watchdog6.sh   # starts loop + relay, monitors for crashes/stalls
+```
+
+The watchdog checks every 10 minutes and restarts the loop with `--resume` if it crashes or stalls for >150 minutes.
+
+### Starting pipelines
+
+**`sota_pipeline.py`** — near-SOTA baseline implementing:
+- Coreference resolution (pronouns/aliases → canonical names)
+- Typed entity-relation-value triples with turn indices
+- Per-entity aggregate profiles sorted by recency
+- Query decomposition for multi-part questions
+- Multi-hop retrieval across entity profiles
+- Temporal ranking (recent vs historical facts)
+- Embedding fallback via `all-MiniLM-L6-v2`
+
+**`entity_pipeline.py`** — simpler entity-based pipeline (~19% F1 baseline).
+
+### Output files
+
+```
+loop_results/
+├── run.log              # full loop stdout (progress + scores)
+├── watchdog.log         # watchdog heartbeat + restart events
+├── relay.log            # relay server stdout
+├── loop.pid             # PID of running loop process
+├── loop_log.jsonl       # checkpoint: every iteration's score, mutation, accepted flag
+├── baseline_score.json  # cached baseline to skip re-evaluation on restart
+└── context_pipeline.py  # current best pipeline (updated when a mutation is accepted)
+```
+
+---
+
+## DSPy optimizer benchmarking
+
+context-bench integrates with [DSPy](https://dspy.ai) for optimizing query-structure-retrieval (QSR) pipelines:
+
+```bash
+uv sync --extra dspy
+
+# Run QSR evaluation
+uv run python -m context_bench.dspy_bench.qsr_eval
+
+# Hyperparameter sweep
+uv run python -m context_bench.dspy_bench.sweep
+```
+
+The DSPy module includes programs, feature extraction, train/val/test splits, compilation health checks, and a metrics bridge to context-bench's evaluation framework.
+
+---
+
+## Built-in datasets (42+)
+
+All HuggingFace datasets require `uv sync --extra datasets`.
 
 ### QA & Reading Comprehension
 
@@ -296,6 +403,13 @@ All HuggingFace datasets require `pip install -e ".[datasets]"` (or `uv sync --e
 | `infinitebench` | [InfiniteBench](https://github.com/OpenBMB/InfiniteBench) | 100K+ tokens |
 | `nolima` | [NoLiMa](https://arxiv.org/abs/2502.05167) | Needle retrieval |
 
+### Memory
+
+| CLI name | Dataset | Notes |
+|----------|---------|-------|
+| `locomo` | [LoCoMo](https://huggingface.co/datasets/snap-research/LoCoMo) | Long-conversation QA (temporal, multi-hop, adversarial) |
+| `longmemeval` | [LongMemEval](https://huggingface.co/datasets/LongMemEval) | Multi-session memory QA |
+
 ### Agent Traces
 
 | CLI name | Dataset | Notes |
@@ -312,11 +426,11 @@ All HuggingFace datasets require `pip install -e ".[datasets]"` (or `uv sync --e
 context-bench --proxy http://localhost:7878 --dataset ./my_data.jsonl
 ```
 
-Any `list[dict]` with `"id"` and `"context"` keys works.
+---
 
-## Built-in evaluators (8)
+## Built-in evaluators (11)
 
-Evaluators are auto-wired based on the datasets you select — no manual configuration needed.
+Evaluators are auto-wired based on the datasets you select.
 
 | Evaluator | Auto-wired for | Scores |
 |-----------|---------------|--------|
@@ -324,90 +438,13 @@ Evaluators are auto-wired based on the datasets you select — no manual configu
 | `SummarizationQuality` | Summarization datasets | `rouge_l_precision`, `rouge_l_recall`, `rouge_l_f1` |
 | `MultipleChoiceAccuracy` | MC datasets (MMLU, ARC, GPQA, HellaSwag, WinoGrande, MMLU-Pro) | `mc_accuracy` |
 | `CodeExecution` | HumanEval, MBPP | `pass_at_1` |
-| `MathEquivalence` | MATH, GSM8K, MGSM | `math_equiv` (LaTeX normalization + numeric comparison) |
+| `MathEquivalence` | MATH, GSM8K, MGSM | `math_equiv` |
 | `NLILabelMatch` | ContractNLI, SciFact | `nli_accuracy` |
-| `IFEvalChecker` | IFEval | `ifeval_strict`, `ifeval_loose` (19 programmatic checks) |
-| `LLMJudge` | Any (via `--judge-url`) | `judge_score` (1-5 scale normalized to 0-1) |
-
-### Evaluator usage examples
-
-**AnswerQuality** — token-level F1 and exact match (SQuAD-style). Applied to every dataset by default:
-
-```python
-from context_bench.evaluators import AnswerQuality
-ev = AnswerQuality()
-ev.score({"answer": "Paris"}, {"response": "The capital is Paris."})
-# {'f1': 0.5, 'exact_match': 0.0, 'recall': 1.0, 'contains': 1.0}
-```
-
-**MultipleChoiceAccuracy** — extracts the chosen letter (A-J) from the response:
-
-```python
-from context_bench.evaluators import MultipleChoiceAccuracy
-ev = MultipleChoiceAccuracy()
-ev.score({"correct_letter": "B"}, {"response": "The answer is B."})
-# {'mc_accuracy': 1.0}
-```
-
-**MathEquivalence** — handles LaTeX normalization, fractions, percentages:
-
-```python
-from context_bench.evaluators import MathEquivalence
-ev = MathEquivalence()
-ev.score({"answer": r"\frac{1}{2}"}, {"response": "0.5"})
-# {'math_equiv': 1.0}
-ev.score({"answer": "42"}, {"response": r"The answer is $\boxed{42}$."})
-# {'math_equiv': 1.0}
-```
-
-**CodeExecution** — runs generated code against test cases in a subprocess:
-
-```python
-from context_bench.evaluators import CodeExecution
-ev = CodeExecution(timeout=10.0)
-ev.score(
-    {"context": "def add(a, b):\n", "test": "def check(c):\n    assert c(1,2)==3\n", "entry_point": "add"},
-    {"response": "    return a + b\n"},
-)
-# {'pass_at_1': 1.0}
-```
-
-**NLILabelMatch** — extracts classification labels with alias mapping:
-
-```python
-from context_bench.evaluators import NLILabelMatch
-ev = NLILabelMatch()
-ev.score({"answer": "Entailment"}, {"response": "Yes, this is true."})
-# {'nli_accuracy': 1.0}  ("yes" maps to "entailment")
-```
-
-**IFEvalChecker** — 19 programmatic checks (keywords, length, format, etc.):
-
-```python
-from context_bench.evaluators import IFEvalChecker
-ev = IFEvalChecker()
-ev.score(
-    {"instruction_id_list": ["punctuation:no_comma", "keywords:existence"],
-     "kwargs": [{}, {"keywords": ["hello"]}]},
-    {"response": "hello world"},
-)
-# {'ifeval_strict': 1.0, 'ifeval_loose': 1.0}
-```
-
-**LLMJudge** — uses an external LLM to rate responses 1-5:
-
-```bash
-# CLI: add --judge-url to enable
-context-bench --proxy http://localhost:7878 --dataset alpaca-eval \
-    --judge-url http://localhost:9090 --judge-model gpt-4
-```
-
-```python
-from context_bench.evaluators import LLMJudge
-judge = LLMJudge(base_url="http://localhost:9090", model="gpt-4")
-judge.score({"question": "What is 2+2?", "answer": "4"}, {"response": "The answer is 4."})
-# {'judge_score': 0.75}  (rating 4/5 → normalized to 0-1)
-```
+| `IFEvalChecker` | IFEval | `ifeval_strict`, `ifeval_loose` |
+| `LLMJudge` | Any (via `--judge-url`) | `judge_score` (1-5 scale → 0-1) |
+| `MemoryJudge` | Memory benchmarks | `judge_score` |
+| `LLMJudgeLoCoMo` | LoCoMo | `judge_score` (with evidence matching) |
+| `FalseMemoryRate` | Memory benchmarks | `false_memory_rate` |
 
 ## Built-in metrics (7)
 
@@ -421,14 +458,29 @@ judge.score({"question": "What is 2+2?", "answer": "4"}, {"response": "The answe
 | `PerDatasetBreakdown` | Mean score sliced by dataset (auto-enabled for multi-dataset runs) |
 | `ParetoRank` | Rank on the quality-vs-cost Pareto frontier (auto-enabled for multi-system runs) |
 
-Utility functions: `f1_score`, `exact_match`, `recall_score` (SQuAD-standard text comparison).
+---
+
+## Built-in systems (9)
+
+| System | Type | Description |
+|--------|------|-------------|
+| `OpenAIProxy` | Context | Wraps any OpenAI-compatible proxy endpoint |
+| `ClaudeCLI` | Context | Uses the `claude` CLI tool |
+| `NaiveSystem` | Context | Baseline — stuffs full context into prompt |
+| `NaiveMemorySystem` | Memory | Full conversation history as prompt |
+| `EmbeddingSystem` | Memory | Semantic search via sentence-transformers |
+| `RLMSystem` | Memory | Multi-strategy retrieval (semantic + keyword + entity) + LLM answering |
+| `Mem0System` | Memory | Mem0 managed memory integration |
+| `ZepSystem` | Memory | Zep/Graphiti temporal knowledge graph |
+| `HostInterpreter` | Code | Sandboxed code execution for tool-use benchmarks |
+
+---
 
 ## Cookbook
 
 ### Run a quick smoke test
 
 ```bash
-# 10 examples, one dataset, table output
 context-bench --proxy http://localhost:7878 --dataset hotpotqa -n 10
 ```
 
@@ -444,7 +496,7 @@ context-bench \
   --output html -n 200 > report.html
 ```
 
-### Compare two systems on multiple-choice benchmarks
+### Compare systems on multiple-choice benchmarks
 
 ```bash
 context-bench \
@@ -472,34 +524,16 @@ context-bench \
   --score-field math_equiv
 ```
 
-### Multi-turn conversation evaluation
-
-```bash
-context-bench \
-  --proxy http://localhost:7878 \
-  --dataset mt-bench \
-  --judge-url http://localhost:9090 \
-  --score-field judge_score
-```
-
 ### Resume an interrupted run
 
 ```bash
-# First run — gets interrupted after 500 examples
+# First run — gets interrupted
 context-bench --proxy http://localhost:7878 --dataset mmlu \
   --cache-dir .cache/ -n 1000
 
 # Re-run — picks up where it left off
 context-bench --proxy http://localhost:7878 --dataset mmlu \
   --cache-dir .cache/ -n 1000
-```
-
-### Multilingual evaluation
-
-```bash
-# German and Japanese math
-context-bench --proxy http://localhost:7878 \
-  --dataset mgsm:de --dataset mgsm:ja -n 50
 ```
 
 ### Custom system (Python API)
@@ -512,7 +546,7 @@ from context_bench.metrics import MeanScore, Latency, PerDatasetBreakdown
 class MyCompressor:
     name = "my-compressor"
     def process(self, example):
-        compressed = my_compress(example["context"])  # your logic
+        compressed = my_compress(example["context"])
         return {**example, "context": compressed, "response": compressed}
 
 result = evaluate(
@@ -523,41 +557,52 @@ result = evaluate(
     max_workers=4,
     cache_dir=".cache/",
 )
-
-# Export
 print(result.to_json())
-df = result.to_dataframe()  # requires pandas
 ```
 
-### Custom multi-turn system
+### Custom memory system
 
 ```python
-class MyMultiTurnSystem:
-    name = "my-chatbot"
+from context_bench.memory_types import Item, IngestResult, QueryResult, ConversationTurn
 
-    def process(self, example):
-        return {**example, "response": call_my_api(example["context"])}
+class MyMemory:
+    name = "my-memory"
 
-    def process_conversation(self, turns):
-        """Called for multi_turn examples (e.g., MT-Bench)."""
-        history = []
-        responses = []
-        for turn in turns:
-            history.append(turn)
-            reply = call_my_api_with_history(history)
-            history.append({"role": "assistant", "content": reply})
-            responses.append({"role": "assistant", "content": reply})
-        return responses
+    def reset(self):
+        self.history = []
+
+    def ingest(self, items: list[Item]) -> IngestResult:
+        self.history.extend(items)
+        return IngestResult(num_items=len(items), latency_ms=0)
+
+    def query(self, question: str, budget: int | None = None) -> QueryResult:
+        context = "\n".join(
+            item.content for item in self.history
+            if isinstance(item, ConversationTurn)
+        )
+        answer = call_my_llm(question, context)
+        return QueryResult(answer=answer, total_latency_ms=0)
 ```
+
+---
 
 ## Installation
 
 ```bash
-# Core (just tiktoken)
+# Core (tiktoken + sentence-transformers)
 uv sync
 
 # With HuggingFace dataset loaders
 uv sync --extra datasets
+
+# With Mem0 integration
+uv sync --extra mem0
+
+# With Zep integration
+uv sync --extra zep
+
+# With DSPy optimizer
+uv sync --extra dspy
 
 # Everything
 uv sync --all-extras
@@ -581,139 +626,27 @@ src/context_bench/
 ├── __main__.py          # CLI entry point (context-bench command)
 ├── __init__.py          # Public API: evaluate, EvalResult, EvalRow, OpenAIProxy
 ├── types.py             # Protocol definitions (System, Evaluator, Metric)
+├── memory_types.py      # Memory protocol + typed items (ConversationTurn, etc.)
 ├── runner.py            # Core evaluate() orchestration (sequential + concurrent)
+├── memory_runner.py     # Memory system evaluate_memory() orchestration
 ├── results.py           # EvalRow / EvalResult dataclasses
 ├── cache.py             # JSONL result caching for resumable runs
 ├── registry.py          # Plugin system for named components
-├── systems/             # Built-in systems (OpenAIProxy, ClaudeCLI)
-├── datasets/            # 42 dataset loaders (QA, MC, code, summarization, NLI, etc.)
-├── evaluators/          # 8 evaluators (answer quality, MC, code exec, math, NLI, IFEval, ROUGE, LLM judge)
+├── embeddings.py        # Embedding utilities
+├── systems/             # 9 systems (OpenAIProxy, ClaudeCLI, Naive, RLM, Embedding, Mem0, Zep, ...)
+├── datasets/            # 42+ dataset loaders (QA, MC, code, summarization, NLI, memory, ...)
+│   └── memory/          # LoCoMo + LongMemEval loaders
+├── evaluators/          # 11 evaluators (answer quality, MC, code exec, math, NLI, IFEval, ROUGE, LLM judge, memory judge, ...)
 ├── metrics/             # 7 metrics (mean, pass rate, compression, cost, latency, per-dataset, Pareto)
 ├── reporters/           # Markdown, JSON, and HTML output formatters
 ├── loop/
 │   └── mutator.py       # LLM-driven pipeline mutator for autoresearch
+├── dspy_bench/          # DSPy optimizer integration (QSR eval, sweep, programs)
 └── utils/tokens.py      # Pluggable tokenizer (default: tiktoken cl100k_base)
 
 pipeline/                # Standalone pipeline files (used by autoresearch loop)
 ├── entity_pipeline.py   # Structured entity-fact pipeline (~19% F1 baseline)
 └── sota_pipeline.py     # Near-SOTA pipeline: coreference + triples + temporal ranking
-```
-
----
-
-## Autoresearch loop (LoCoMo benchmark)
-
-context-bench includes an **autoresearch loop** that uses Claude to iteratively improve a retrieval pipeline on the [LoCoMo](https://huggingface.co/datasets/snap-research/LoCoMo) long-conversation QA benchmark.
-
-**SOTA target:** 90% F1 (Hindsight + Gemini-3 Pro + TEMPR, Dec 2025)
-
-### How it works
-
-1. Start from a strong baseline pipeline (`sota_pipeline.py`)
-2. An LLM (Claude Sonnet) reads the current pipeline source + score history
-3. It proposes one **architectural improvement** (coreference resolution, temporal ranking, multi-hop retrieval, etc.)
-4. The new pipeline is evaluated on 2 held-out LoCoMo conversations (10 QA pairs)
-5. If F1 improves, the new pipeline becomes the baseline — otherwise revert
-6. Repeat for N iterations
-
-### Running the loop
-
-```bash
-# Start the relay (OpenAI-compatible Claude proxy)
-cd /path/to/claude-relay
-uv run agent-relay serve --port 18082 --max-concurrent 16
-
-# Run the autoresearch loop
-uv run python3 loop.py \
-  --relay http://localhost:18082 \
-  --model sonnet \
-  --dataset locomo \
-  --iterations 50 \
-  --eval-n 2 \
-  --max-qa-per-conv 5 \
-  --seed 42 \
-  --output-dir loop_results_v6/ \
-  --pipeline-path src/context_bench/pipeline/sota_pipeline.py
-
-# Resume after a crash
-uv run python3 loop.py ... --resume
-```
-
-### loop.py flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--relay URL` | *(required)* | OpenAI-compatible relay URL |
-| `--model NAME` | `sonnet` | Model for both mutation and answering |
-| `--dataset NAME` | `locomo` | Dataset to optimize on |
-| `--iterations N` | `50` | Max mutation iterations |
-| `--eval-n N` | `2` | Number of conversations to evaluate per iteration |
-| `--max-qa-per-conv N` | `5` | QA pairs sampled per conversation |
-| `--seed N` | `42` | Random seed for reproducible splits |
-| `--output-dir DIR` | *(required)* | Directory for results, checkpoints, logs |
-| `--pipeline-path PATH` | *(required)* | Starting pipeline `.py` file |
-| `--resume` | `False` | Resume from last checkpoint in `--output-dir` |
-
-### Overnight watchdog
-
-Use the watchdog scripts to keep the loop running unattended:
-
-```bash
-bash watchdog6.sh   # starts loop + relay, monitors for crashes/stalls
-```
-
-The watchdog checks every 10 minutes and restarts the loop with `--resume` if it crashes or stalls for >150 minutes.
-
-### Starting pipelines
-
-**`sota_pipeline.py`** — near-SOTA baseline implementing:
-- **Coreference resolution**: pronouns/aliases → canonical entity names during ingest
-- **Typed entity-relation-value triples**: `(entity, relation, value, turn_idx)` for precise lookup
-- **Entity profiles**: per-entity aggregate of all known facts, sorted by recency
-- **Query decomposition**: multi-part questions split into sub-questions
-- **Multi-hop retrieval**: extract entities from question, retrieve profiles, reason across them
-- **Temporal ranking**: "current" questions prefer recent facts; "used to" questions prefer old facts
-- **Embedding fallback**: `all-MiniLM-L6-v2` semantic search when entity lookup is thin
-
-**`entity_pipeline.py`** — simpler STRATEGY-based pipeline (~19% F1) used in earlier runs.
-
-### Output files
-
-```
-loop_results_v6/
-├── run.log              # full loop stdout (progress + scores)
-├── watchdog.log         # watchdog heartbeat + restart events
-├── relay.log            # relay server stdout
-├── loop.pid             # PID of running loop process
-├── loop_log.jsonl       # checkpoint: every iteration's score, mutation, accepted flag
-├── baseline_score.json  # cached baseline to skip re-evaluation on restart
-└── context_pipeline.py  # current best pipeline (updated when a mutation is accepted)
-```
-
-## CI/CD
-
-This project uses GitHub Actions for continuous integration:
-
-```yaml
-# .github/workflows/ci.yml
-name: CI
-on:
-  push:
-    branches: [master, main]
-  pull_request:
-    branches: [master, main]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv python install ${{ matrix.python-version }}
-      - run: uv sync --group dev
-      - run: uv run pytest
 ```
 
 ## License
