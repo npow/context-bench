@@ -130,6 +130,11 @@ def _run_typed_example(
             result = QueryResult(answer="", total_latency_ms=0.0)
         query_latency = time.monotonic() - t_query
 
+        # Handle both str and QueryResult returns
+        if isinstance(result, str):
+            _context_tokens = getattr(system, "last_context_tokens", 0)
+            result = QueryResult(answer=result, total_latency_ms=query_latency * 1000, context_tokens=_context_tokens)
+
         # Build pseudo dicts for existing evaluators
         context_snippet = _items_to_context_snippet(example.items, max_chars=3000)
         pseudo_input = {

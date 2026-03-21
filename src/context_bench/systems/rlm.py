@@ -383,8 +383,20 @@ class RLMSystem:
         from context_bench.systems.host_interpreter import HostInterpreter
 
         interpreter = HostInterpreter()
+
+        sig = dspy.Signature(
+            "context, question -> answer",
+            instructions=(
+                "Answer the question based on conversation data in the provided stores. "
+                "Your answer must be CONCISE — just the key facts, names, dates, or short phrases. "
+                "Do NOT explain reasoning, do NOT use bullet points, do NOT elaborate. "
+                "Match the style of a short factual answer (e.g. 'Psychology, counseling certification' "
+                "or 'June 2023' or 'Yes, because she likes classical music')."
+            ),
+        )
+
         rlm = dspy.RLM(
-            signature="context, question -> answer",
+            signature=sig,
             max_iterations=self._max_iterations,
             max_llm_calls=self._max_llm_calls,
             verbose=True,
