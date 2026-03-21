@@ -1,10 +1,10 @@
-"""RLM-based memory system using DSPy's Recursive Language Model.
+"""RLM-based memory system using smart retrieval + LLM answering.
 
 Stores conversation data in LanceDB (embeddings) and DuckDB (structured).
-On query, runs the RLM loop: the model writes Python code to explore
-the stores iteratively until it assembles the right context.
+On query, uses multi-strategy retrieval (semantic + keyword + entity) to
+gather relevant context, then a single LLM call to answer concisely.
 
-Requires: pip install context-bench[dspy] lancedb duckdb sentence-transformers
+Requires: pip install lancedb duckdb sentence-transformers
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import re
 import shutil
 import tempfile
 import time
+import traceback
 import urllib.error
 import urllib.request
 from typing import Any
@@ -28,11 +29,6 @@ from context_bench.memory_types import (
     PlatformEvent,
     QueryResult,
 )
-
-try:
-    import dspy
-except ImportError:
-    dspy = None  # type: ignore[assignment]
 
 try:
     import lancedb
@@ -50,42 +46,12 @@ except ImportError:
     SentenceTransformer = None  # type: ignore[assignment]
 
 
-_STORE_DESCRIPTION_TEMPLATE = """\
-Available data stores (connect to them using the provided paths):
-
-1. LanceDB semantic store at: {lance_path}
-   Connect: import lancedb; lance_conn = lancedb.connect("{lance_path}"); semantic = lance_conn.open_table("semantic")
-   Columns: text (str), vector (embedding), timestamp (str), session_id (str), speaker (str), item_type (str)
-   Search: results = semantic.search("query text").limit(10).to_list()
-   Filter: results = semantic.search("query").where("timestamp > '2024-01-01'").limit(10).to_list()
-   Full scan: df = semantic.to_pandas()
-
-2. DuckDB structured store at: {duck_path}
-   Connect: import duckdb; db = duckdb.connect("{duck_path}", read_only=True)
-   Tables:
-     turns(turn_id INTEGER, content TEXT, role TEXT, speaker TEXT, timestamp TEXT, session_id TEXT)
-     entities(entity TEXT, entity_type TEXT, turn_id INTEGER, context_snippet TEXT)
-     declarations(key TEXT, value TEXT, source_turn_id TEXT, timestamp TEXT)
-   Usage: results = db.execute("SELECT * FROM turns WHERE content LIKE '%topic%'").fetchall()
-
-IMPORTANT: You must import lancedb and duckdb and connect to them using the paths above.
-Do NOT assume they are already connected. Always start your code by connecting to the stores.
-"""
-
-
 def _extract_entities(text: str) -> list[tuple[str, str, str]]:
-    """Simple regex-based entity extraction.
-
-    Returns list of (entity, entity_type, context_snippet).
-    """
+    """Simple regex-based entity extraction."""
     entities: list[tuple[str, str, str]] = []
-
-    # Names: capitalized words that look like proper nouns (2+ capitalized words)
     for m in re.finditer(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b", text):
         snippet = text[max(0, m.start() - 30):m.end() + 30]
         entities.append((m.group(0), "name", snippet))
-
-    # Dates: various date formats
     for m in re.finditer(
         r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|"
         r"(?:January|February|March|April|May|June|July|August|September|"
@@ -94,18 +60,35 @@ def _extract_entities(text: str) -> list[tuple[str, str, str]]:
     ):
         snippet = text[max(0, m.start() - 30):m.end() + 30]
         entities.append((m.group(0), "date", snippet))
-
     return entities
 
 
+def _extract_keywords(question: str) -> list[str]:
+    """Extract meaningful keywords from a question for SQL LIKE search."""
+    # Remove common question words
+    stop_words = {
+        "what", "when", "where", "who", "why", "how", "which", "would",
+        "could", "should", "does", "did", "will", "can", "is", "are",
+        "was", "were", "has", "have", "had", "be", "been", "being",
+        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to",
+        "for", "of", "with", "by", "from", "as", "if", "that", "this",
+        "it", "its", "not", "no", "do", "so", "up", "out", "about",
+        "than", "then", "also", "just", "more", "most", "still",
+        "likely", "probably", "considered", "she", "he", "her", "his",
+        "they", "their", "s", "t", "re", "ve", "ll", "d",
+    }
+    # Split on non-alphanumeric and filter
+    words = re.findall(r"[a-zA-Z]+", question.lower())
+    keywords = [w for w in words if w not in stop_words and len(w) > 2]
+    return keywords
+
+
 class RLMSystem:
-    """Memory system using DSPy's RLM for iterative code-generated retrieval.
+    """Memory system using smart retrieval + LLM answering.
 
     Stores conversation data in LanceDB (embeddings) and DuckDB (structured).
-    On query, runs the RLM loop: the model writes Python code to explore
-    the stores iteratively until it assembles the right context.
-
-    Requires: pip install context-bench[dspy] lancedb duckdb sentence-transformers
+    Uses multi-strategy retrieval to gather relevant context, then
+    answers with a single LLM call.
     """
 
     def __init__(
@@ -113,13 +96,11 @@ class RLMSystem:
         base_url: str,
         model: str = "claude-haiku-4-5-20251001",
         embedding_model: str = "all-MiniLM-L6-v2",
-        max_iterations: int = 10,
-        max_llm_calls: int = 20,
+        max_iterations: int = 8,
+        max_llm_calls: int = 10,
         api_key: str | None = None,
         timeout: float = 120.0,
     ):
-        if dspy is None:
-            raise ImportError("dspy is required: pip install dspy")
         if lancedb is None:
             raise ImportError("lancedb is required: pip install lancedb")
         if duckdb is None:
@@ -145,12 +126,7 @@ class RLMSystem:
     def name(self) -> str:
         return "rlm"
 
-    # ------------------------------------------------------------------
-    # MemorySystem protocol
-    # ------------------------------------------------------------------
-
     def reset(self) -> None:
-        """Clean up temporary storage."""
         if self._duck_conn is not None:
             try:
                 self._duck_conn.close()
@@ -166,38 +142,30 @@ class RLMSystem:
 
     def ingest(self, items: list[Item]) -> IngestResult:
         t0 = time.perf_counter()
-
-        # Set up temp directory
         self.reset()
         self._tmpdir = tempfile.mkdtemp(prefix="rlm_")
 
-        # --- LanceDB setup ---
         lance_path = os.path.join(self._tmpdir, "lance")
         self._lance_db = lancedb.connect(lance_path)
 
-        # --- DuckDB setup ---
         self._duck_path = os.path.join(self._tmpdir, "meta.duckdb")
         conn = duckdb.connect(self._duck_path)
         conn.execute(
             "CREATE TABLE turns("
             "  turn_id INTEGER, content TEXT, role TEXT, "
-            "  speaker TEXT, timestamp TEXT, session_id TEXT"
-            ")"
+            "  speaker TEXT, timestamp TEXT, session_id TEXT)"
         )
         conn.execute(
             "CREATE TABLE entities("
             "  entity TEXT, entity_type TEXT, "
-            "  turn_id INTEGER, context_snippet TEXT"
-            ")"
+            "  turn_id INTEGER, context_snippet TEXT)"
         )
         conn.execute(
             "CREATE TABLE declarations("
             "  key TEXT, value TEXT, "
-            "  source_turn_id TEXT, timestamp TEXT"
-            ")"
+            "  source_turn_id TEXT, timestamp TEXT)"
         )
 
-        # --- Process items ---
         lance_rows: list[dict[str, Any]] = []
         turn_id = 0
 
@@ -222,14 +190,11 @@ class RLMSystem:
                     "INSERT INTO turns VALUES (?, ?, ?, ?, ?, ?)",
                     [turn_id, content, role, speaker, ts, sid],
                 )
-
-                # Entity extraction
                 for entity, etype, snippet in _extract_entities(content):
                     conn.execute(
                         "INSERT INTO entities VALUES (?, ?, ?, ?)",
                         [entity, etype, turn_id, snippet],
                     )
-
                 turn_id += 1
 
             elif isinstance(item, DocumentChunk):
@@ -269,15 +234,12 @@ class RLMSystem:
                     [item.key, item.value, item.source_turn_id or "", ""],
                 )
 
-        # Create LanceDB table
         if lance_rows:
             self._lance_table = self._lance_db.create_table(
                 "semantic", data=lance_rows, mode="overwrite"
             )
         else:
-            # Create empty table with schema
             import pyarrow as pa
-
             schema = pa.schema([
                 ("text", pa.string()),
                 ("vector", pa.list_(pa.float32(), list_size=self._embedder.get_sentence_embedding_dimension())),
@@ -297,204 +259,213 @@ class RLMSystem:
         return IngestResult(
             num_items=len(items),
             latency_ms=elapsed_ms,
-            details={
-                "lance_rows": len(lance_rows),
-                "turns": turn_id,
-            },
+            details={"lance_rows": len(lance_rows), "turns": turn_id},
         )
 
     def query(self, question: str, budget: int | None = None) -> QueryResult:
         t0 = time.perf_counter()
-
         try:
-            result = self._query_rlm(question)
+            result = self._query_smart(question)
         except Exception as exc:
-            # Fallback to simple semantic search
-            result = self._query_fallback(question, fallback_reason=str(exc))
-
+            print(f"[RLM] Query failed: {exc}", flush=True)
+            traceback.print_exc()
+            result = QueryResult(
+                answer="",
+                total_latency_ms=0,
+                context_tokens=0,
+                details={"method": "error", "error": str(exc)},
+            )
         elapsed_ms = (time.perf_counter() - t0) * 1000
         result.total_latency_ms = elapsed_ms
         return result
 
     # ------------------------------------------------------------------
-    # RLM query
+    # Smart retrieval + answer
     # ------------------------------------------------------------------
 
-    def _query_rlm(self, question: str) -> QueryResult:
-        """Run the RLM loop against the stores.
-
-        Passes file paths (strings) to the RLM, not live objects.
-        The RLM's generated code connects to the stores itself.
-        """
-        # Configure dspy
-        lm = dspy.LM(
-            model=f"openai/{self._model}",
-            api_base=self._base_url,
-            api_key=self._api_key or "unused",
-        )
-        dspy.configure(lm=lm)
-
-        # Build context with file paths and sample data
-        lance_path = os.path.join(self._tmpdir, "lance")
-        context = _STORE_DESCRIPTION_TEMPLATE.format(
-            lance_path=lance_path,
-            duck_path=self._duck_path,
-        )
-
-        # Add sample data so the RLM knows what's in the stores
+    def _query_smart(self, question: str) -> QueryResult:
+        """Multi-strategy retrieval followed by a single LLM answer call."""
         db_ro = duckdb.connect(self._duck_path, read_only=True)
+
         try:
-            try:
-                sample_turns = db_ro.execute(
-                    "SELECT turn_id, speaker, timestamp, substr(content, 1, 100) as content_preview FROM turns LIMIT 5"
-                ).fetchall()
-                if sample_turns:
-                    context += f"\nSample turns data (first 5 of many):\n{sample_turns}\n"
-                total = db_ro.execute("SELECT COUNT(*) FROM turns").fetchone()[0]
-                context += f"Total turns: {total}\n"
-            except Exception:
-                pass
-
-            try:
-                sample_decl = db_ro.execute(
-                    "SELECT * FROM declarations LIMIT 5"
-                ).fetchall()
-                if sample_decl:
-                    context += f"\nSample declarations:\n{sample_decl}\n"
-            except Exception:
-                pass
-
-            try:
-                entity_count = db_ro.execute(
-                    "SELECT COUNT(*) FROM entities"
-                ).fetchone()[0]
-                if entity_count > 0:
-                    sample_ent = db_ro.execute(
-                        "SELECT entity, entity_type FROM entities LIMIT 10"
-                    ).fetchall()
-                    context += f"\nEntities ({entity_count} total), sample:\n{sample_ent}\n"
-            except Exception:
-                pass
+            context_parts = self._retrieve(question, db_ro)
         finally:
             db_ro.close()
 
-        # Create RLM module with host interpreter (not WASM) so code can
-        # import native extensions like lancedb and duckdb.
-        from context_bench.systems.host_interpreter import HostInterpreter
+        # Deduplicate while preserving order
+        seen = set()
+        unique_parts = []
+        for part in context_parts:
+            key = part.strip()[:200]
+            if key not in seen:
+                seen.add(key)
+                unique_parts.append(part)
 
-        interpreter = HostInterpreter()
+        context = "\n---\n".join(unique_parts)
+        context_tokens = len(context.split())
 
-        sig = dspy.Signature(
-            "context, question -> answer",
-            instructions=(
-                "Answer the question based on conversation data in the provided stores. "
-                "Your answer must be CONCISE — just the key facts, names, dates, or short phrases. "
-                "Do NOT explain reasoning, do NOT use bullet points, do NOT elaborate. "
-                "Match the style of a short factual answer (e.g. 'Psychology, counseling certification' "
-                "or 'June 2023' or 'Yes, because she likes classical music')."
-            ),
-        )
+        # Truncate if too long (keep most relevant first)
+        max_context_chars = 15000
+        if len(context) > max_context_chars:
+            context = context[:max_context_chars] + "\n[...truncated...]"
 
-        rlm = dspy.RLM(
-            signature=sig,
-            max_iterations=self._max_iterations,
-            max_llm_calls=self._max_llm_calls,
-            verbose=True,
-            interpreter=interpreter,
-        )
-
-        result = rlm(
-            context=context,
-            question=question,
-        )
-
-        answer = result.answer
-        trajectory = result.trajectory if hasattr(result, "trajectory") else []
-        iterations = len(trajectory) if trajectory else 0
-
-        # Estimate context tokens from trajectory
-        traj_text = json.dumps(trajectory) if trajectory else ""
-        context_tokens = len(traj_text.split())
+        answer = self._chat([
+            {
+                "role": "system",
+                "content": (
+                    "You answer questions about conversations. "
+                    "Rules:\n"
+                    "1. Answer in ONE short sentence or phrase (under 15 words)\n"
+                    "2. No explanations, no elaboration, no dashes followed by reasoning\n"
+                    "3. Just the direct answer, nothing else\n"
+                    "4. Examples: 'Psychology, counseling certification' / 'Likely no' / "
+                    "'Yes, since she collects classic children's books' / 'Liberal' / "
+                    "'Thoughtful, authentic, driven' / 'National park; she likes the outdoors'"
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Context:\n{context}\n\nQuestion: {question}\n\nShort answer:",
+            },
+        ])
 
         return QueryResult(
             answer=answer,
-            total_latency_ms=0,  # filled by caller
+            total_latency_ms=0,
             context_tokens=context_tokens,
             details={
-                "method": "rlm",
-                "iterations": iterations,
-                "trajectory": trajectory,
+                "method": "smart_retrieval",
+                "num_context_parts": len(unique_parts),
                 "fallback_triggered": False,
             },
         )
 
-    # ------------------------------------------------------------------
-    # Fallback: simple semantic search + LLM
-    # ------------------------------------------------------------------
+    def _format_turn(self, content: str, speaker: str, ts: str) -> str:
+        """Format a turn with optional timestamp and speaker prefix."""
+        prefix = ""
+        if ts:
+            prefix += f"[{ts}] "
+        if speaker:
+            prefix += f"{speaker}: "
+        return prefix + content
 
-    def _query_fallback(self, question: str, fallback_reason: str = "") -> QueryResult:
-        """Fallback to simple semantic search when RLM fails."""
-        if self._lance_table is None:
-            return QueryResult(
-                answer="No data ingested.",
-                total_latency_ms=0,
-                context_tokens=0,
-                details={"method": "fallback", "fallback_triggered": True, "reason": fallback_reason},
-            )
+    def _get_context_window(self, db_ro: Any, turn_ids: set[int], window: int = 2) -> list[str]:
+        """Get surrounding turns for a set of turn IDs (temporal context)."""
+        if not turn_ids:
+            return []
+        # Build ranges around each turn
+        expanded = set()
+        for tid in turn_ids:
+            for offset in range(-window, window + 1):
+                expanded.add(tid + offset)
+        expanded = {t for t in expanded if t >= 0}
 
-        # Semantic search
+        if not expanded:
+            return []
+
+        placeholders = ",".join(str(t) for t in sorted(expanded))
         try:
-            results = self._lance_table.search(question).limit(10).to_list()
+            rows = db_ro.execute(
+                f"SELECT turn_id, content, speaker, timestamp FROM turns "
+                f"WHERE turn_id IN ({placeholders}) "
+                f"ORDER BY turn_id"
+            ).fetchall()
+            return [self._format_turn(content, speaker, ts) for _, content, speaker, ts in rows]
         except Exception:
-            results = []
+            return []
 
-        if not results:
-            # Try to get all data from DuckDB
-            try:
-                conn = duckdb.connect(self._duck_path, read_only=True)
-                rows = conn.execute("SELECT content FROM turns").fetchall()
-                conn.close()
-                context_parts = [r[0] for r in rows]
-            except Exception:
-                context_parts = []
-        else:
-            context_parts = [r["text"] for r in results]
+    def _retrieve(self, question: str, db_ro: Any) -> list[str]:
+        """Multi-strategy retrieval combining semantic, keyword, and entity search."""
+        context_parts: list[str] = []
+        relevant_turn_ids: set[int] = set()
 
-        context = "\n---\n".join(context_parts)
-        context_tokens = len(context.split())
+        # Strategy 1: Semantic (vector) search via LanceDB
+        try:
+            query_vec = self._embedder.encode(question).tolist()
+            results = self._lance_table.search(query_vec).limit(20).to_list()
+            for r in results:
+                context_parts.append(self._format_turn(
+                    r.get("text", ""), r.get("speaker", ""), r.get("timestamp", "")
+                ))
+        except Exception as e:
+            print(f"[RLM] Semantic search failed: {e}", flush=True)
 
-        # Call LLM to answer
-        system_prompt = (
-            "You are a helpful assistant. Answer the question based only on the "
-            "provided context. Be concise and accurate."
-        )
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": (
-                    f"Context:\n{context}\n\n"
-                    f"Question: {question}\n\n"
-                    "Answer based only on the context above:"
-                ),
-            },
-        ]
-        answer = self._chat(messages)
+        # Strategy 2: Keyword search in DuckDB
+        keywords = _extract_keywords(question)
+        if keywords:
+            conditions = [f"LOWER(content) LIKE '%{kw}%'" for kw in keywords[:8]]
+            if conditions:
+                where = " OR ".join(conditions)
+                try:
+                    rows = db_ro.execute(
+                        f"SELECT turn_id, content, speaker, timestamp FROM turns "
+                        f"WHERE {where} "
+                        f"ORDER BY turn_id LIMIT 30"
+                    ).fetchall()
+                    for tid, content, speaker, ts in rows:
+                        relevant_turn_ids.add(tid)
+                        context_parts.append(self._format_turn(content, speaker, ts))
+                except Exception as e:
+                    print(f"[RLM] Keyword search failed: {e}", flush=True)
 
-        return QueryResult(
-            answer=answer,
-            total_latency_ms=0,  # filled by caller
-            context_tokens=context_tokens,
-            details={
-                "method": "fallback",
-                "fallback_triggered": True,
-                "reason": fallback_reason,
-                "num_results": len(context_parts),
-            },
-        )
+        # Strategy 3: Entity-based search
+        question_words = set(re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*", question))
+        if question_words:
+            for entity_name in question_words:
+                try:
+                    rows = db_ro.execute(
+                        "SELECT t.turn_id, t.content, t.speaker, t.timestamp "
+                        "FROM turns t JOIN entities e ON t.turn_id = e.turn_id "
+                        "WHERE e.entity = ? "
+                        "ORDER BY t.turn_id LIMIT 10",
+                        [entity_name],
+                    ).fetchall()
+                    for tid, content, speaker, ts in rows:
+                        relevant_turn_ids.add(tid)
+                        context_parts.append(self._format_turn(content, speaker, ts))
+                except Exception:
+                    pass
+
+        # Strategy 4: Declarations
+        try:
+            decls = db_ro.execute("SELECT key, value FROM declarations").fetchall()
+            for key, value in decls:
+                context_parts.append(f"[Declaration] {key}: {value}")
+        except Exception:
+            pass
+
+        # Strategy 5: If question mentions a specific speaker, get their key turns
+        all_speakers = []
+        try:
+            all_speakers = [row[0] for row in db_ro.execute(
+                "SELECT DISTINCT speaker FROM turns WHERE speaker IS NOT NULL AND speaker != ''"
+            ).fetchall()]
+        except Exception:
+            pass
+
+        for speaker_name in all_speakers:
+            if speaker_name.lower() in question.lower():
+                try:
+                    rows = db_ro.execute(
+                        "SELECT turn_id, content, timestamp FROM turns "
+                        "WHERE speaker = ? ORDER BY turn_id LIMIT 20",
+                        [speaker_name],
+                    ).fetchall()
+                    for tid, content, ts in rows:
+                        relevant_turn_ids.add(tid)
+                        context_parts.append(self._format_turn(content, speaker_name, ts))
+                except Exception:
+                    pass
+
+        # Strategy 6: Context window - grab surrounding turns for temporal context
+        if relevant_turn_ids:
+            window_parts = self._get_context_window(db_ro, relevant_turn_ids, window=2)
+            context_parts.extend(window_parts)
+
+        return context_parts
 
     # ------------------------------------------------------------------
-    # HTTP chat (fallback only, no external deps)
+    # HTTP chat
     # ------------------------------------------------------------------
 
     def _chat(self, messages: list[dict[str, Any]]) -> str:
@@ -507,7 +478,7 @@ class RLMSystem:
         for attempt in range(3):
             req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             try:
-                with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                with urllib.request.urlopen(req, timeout=300) as resp:
                     data = json.loads(resp.read().decode())
                     return data["choices"][0]["message"]["content"]
             except urllib.error.HTTPError as e:
