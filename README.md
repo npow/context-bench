@@ -6,64 +6,115 @@
 
 **Measure whether your LLM context system actually works — in one command.**
 
-You built something that sits between a user and an LLM: a context compressor, a RAG pipeline, a memory system, a reranker. Does it improve answers? Does it make them worse? Is it worth the tokens? context-bench runs your system against 42+ standard datasets and tells you.
+You built something that sits between a user and an LLM: a context compressor, a RAG pipeline, a memory system, a reranker. Does it help? Does it make them worse? Is it worth the tokens? context-bench runs your system against 42+ standard datasets so you don't have to build your own eval harness.
 
 ---
 
-## What you can do with it
+## Results: LoCoMo long-conversation memory
 
-### Compare memory systems on long-conversation QA
+[LoCoMo](https://huggingface.co/datasets/snap-research/LoCoMo) tests whether a system can answer questions about 400+ turn conversations — temporal reasoning, multi-hop lookups, adversarial traps. The original paper's best baseline (GPT-3.5-turbo-16K) scores **37.8% F1**. Human ceiling is **87.9% F1**.
 
-Does your memory system actually remember things from a 400-turn conversation? context-bench evaluates this on [LoCoMo](https://huggingface.co/datasets/snap-research/LoCoMo), a benchmark of long conversations with temporal, multi-hop, and adversarial questions.
+Here's a real run from context-bench, 3 conversations, 70 queries across all question types:
 
-Here's a real run comparing three built-in systems — full context stuffing (naive), semantic search (embedding), and multi-strategy retrieval + LLM (rlm):
+| System | F1 | LLM Judge | Strategy |
+|--------|-----|-----------|----------|
+| naive | 0.383 | 0.63 | Stuff all 400+ turns into the prompt (~14K tokens/query) |
+| embedding | 0.330 | 0.51 | Retrieve top-50 turns by semantic similarity (~1.5K tokens/query) |
+| **rlm** | **0.431** | **0.69** | Multi-strategy retrieval (semantic + keyword + entity) → LLM answer |
+| bm25_entity_v4 | 0.393 | 0.59 | Auto-evolved via autoresearch loop: BM25 + entity index + fact store |
 
+**How this compares to published systems** (note: most report LLM-as-Judge, not raw F1):
+
+| System | Metric | Score | Source |
+|--------|--------|-------|--------|
+| GPT-3.5-16K (paper baseline) | F1 | 37.8% | [Maharana et al. 2024](https://arxiv.org/abs/2402.17753) |
+| **context-bench RLM** | **F1** | **43.1%** | This repo |
+| Mem0 | LLM-Judge | 66.9% | [Mem0 paper](https://arxiv.org/html/2504.19413v1) |
+| **context-bench RLM** | **LLM-Judge** | **69%** | This repo |
+| Engram | LLM-Judge | 80.0% | [engram.fyi](https://www.engram.fyi/research) |
+| Backboard.io | LLM-Judge | 90.1% | [Press release](https://www.einnews.com/pr_news/863886023/) |
+| Human | F1 | 87.9% | Paper |
+
+The RLM system outperforms the original paper's best baseline on F1 and is competitive with Mem0 on LLM-Judge — using only open-source components (sentence-transformers, LanceDB, DuckDB).
+
+Per question type breakdown (RLM):
+
+| Type | F1 | LLM Judge | What it tests |
+|------|-----|-----------|---------------|
+| single_hop | 0.48 | 0.73 | Direct fact lookup |
+| multi_hop | 0.60 | 0.87 | Reasoning across multiple turns |
+| open_domain | 0.65 | 0.80 | General knowledge from conversation |
+| temporal | 0.13 | 0.40 | Time-sensitive questions ("what was X's job last year?") |
+| adversarial | 0.02 | 0.07 | Questions about things never discussed |
+
+Adversarial and temporal remain hard for all systems — same pattern the original paper found.
+
+<details>
+<summary>Reproduce these results</summary>
+
+```bash
+uv sync
+# You need an OpenAI-compatible LLM endpoint running
+context-bench memory \
+  --system naive --system embedding --system rlm \
+  --relay http://localhost:8080 \
+  --model sonnet \
+  --dataset locomo -n 3
 ```
-$ context-bench memory \
-    --system naive --system embedding --system rlm \
-    --relay http://localhost:18082 --model sonnet \
-    --dataset locomo -n 1
 
-| System         |   F1   | Judge | Token Efficiency |
-|----------------|--------|-------|------------------|
-| naive          | 0.380  |  0.67 |            0.238 |
-| embedding_top50| 0.429  |  0.78 |            0.243 |
-| rlm            | 0.433  |  0.78 |            0.251 |
+Or via the Python API:
+
+```python
+from context_bench.datasets.memory.locomo import locomo
+from context_bench.systems.rlm import RLMSystem
+from context_bench.systems.naive import NaiveSystem
+from context_bench.systems.embedding import EmbeddingSystem
+from context_bench.evaluators.answer_quality import AnswerQuality
+from context_bench.evaluators.llm_judge_locomo import LLMJudgeLoCoMo
+from context_bench.memory_runner import evaluate_memory
+
+examples = locomo(n=3)
+systems = [
+    NaiveSystem(base_url="http://localhost:8080", model="sonnet", api_key="unused"),
+    EmbeddingSystem(base_url="http://localhost:8080", model="sonnet", top_k=50, api_key="unused"),
+    RLMSystem(base_url="http://localhost:8080", model="sonnet", api_key="unused"),
+]
+evaluators = [AnswerQuality(), LLMJudgeLoCoMo(relay_url="http://localhost:8080", model="sonnet")]
+
+result = evaluate_memory(systems=systems, dataset=examples, evaluators=evaluators)
+for row in result.rows:
+    print(f"{row.system}: f1={row.scores.get('f1', 0):.3f} judge={row.scores.get('llm_judge', 0):.1f}")
 ```
+</details>
 
-The naive system stuffs all 419 turns into the prompt (~14K tokens per query). The embedding system retrieves the top-50 most relevant turns (~1.5K tokens). RLM combines semantic search, keyword matching, and entity lookup. All scored against ground truth with both token-level F1 and an LLM judge.
+---
+
+## What else can it do?
 
 ### Benchmark any OpenAI-compatible endpoint
 
-If your system exposes an OpenAI-compatible API (most do), point context-bench at it:
+Point it at any system that speaks `/v1/chat/completions`:
 
-```
-$ context-bench \
-    --proxy http://localhost:7878 --name my-system \
-    --proxy http://localhost:9091 --name baseline \
-    --dataset hotpotqa -n 50
-
-| System    | mean_score | pass_rate | compression_ratio | cost_of_pass |
-|-----------|------------|-----------|-------------------|--------------|
-| my-system | 0.364      | 0.364     | -0.135            | 2,447        |
-| baseline  | 0.293      | 0.293     | -0.326            | 4,291        |
+```bash
+context-bench \
+  --proxy http://localhost:7878 --name my-system \
+  --proxy http://localhost:9091 --name baseline \
+  --dataset hotpotqa -n 50
 ```
 
-Works with any proxy, compressor, or middleware that speaks the OpenAI chat completions API. Evaluators are auto-wired — F1 for QA, code execution for HumanEval, LaTeX-aware matching for math, ROUGE for summarization.
+Evaluators are auto-wired — F1 for QA, code execution for HumanEval, LaTeX-aware matching for math, ROUGE for summarization. 42+ datasets across 10 categories.
 
 ### Let an LLM improve your pipeline automatically
 
-The autoresearch loop uses Claude to iteratively mutate and test a retrieval pipeline:
+The autoresearch loop uses Claude to iteratively mutate and test a retrieval pipeline. The `bm25_entity_v4` pipeline in the results above was produced this way — 40 iterations of propose-evaluate-keep:
 
 ```bash
 uv run python3 loop.py \
-  --relay http://localhost:18082 \
+  --relay http://localhost:8080 \
   --iterations 50 \
   --output-dir loop_results/ \
   --pipeline-path pipeline/sota_pipeline.py
 ```
-
-Each iteration: Claude reads the pipeline source + score history, proposes one architectural change (add coreference resolution, try temporal ranking, etc.), the change is evaluated, and improvements are kept. Run it overnight with the watchdog script and come back to a better pipeline.
 
 ---
 
@@ -78,20 +129,18 @@ uv sync --extra datasets      # + HuggingFace dataset loaders
 
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
-### Try it: memory benchmark
+You'll need an OpenAI-compatible LLM endpoint for the systems that call an LLM (naive, rlm, and the LLM judge evaluator). Any endpoint that serves `/v1/chat/completions` works — OpenAI, Anthropic via a relay, vLLM, Ollama, etc.
 
-The fastest way to see it work — evaluate the naive memory system on LoCoMo. You need an OpenAI-compatible endpoint (any LLM API that speaks `/v1/chat/completions`):
+### Memory benchmark (quickest way to see results)
 
 ```bash
 context-bench memory \
-  --system naive \
-  --relay http://localhost:18082 \
+  --system naive --system embedding --system rlm \
+  --relay http://localhost:8080 \
   --dataset locomo -n 1
 ```
 
-### Try it: proxy benchmark
-
-Benchmark any endpoint on HotpotQA:
+### Proxy benchmark
 
 ```bash
 context-bench \
@@ -99,7 +148,7 @@ context-bench \
   --dataset hotpotqa -n 20
 ```
 
-### Try it: Python API
+### Python API
 
 ```python
 from context_bench import evaluate, OpenAIProxy
@@ -127,7 +176,7 @@ Dataset → System → Evaluator → Metric
 
 1. **Dataset** — examples with questions, context, and ground-truth answers
 2. **System** — your thing: compresses, retrieves, transforms, or just forwards
-3. **Evaluator** — scores the output against ground truth (F1, code execution, math equivalence, etc.)
+3. **Evaluator** — scores the output against ground truth
 4. **Metric** — aggregates across examples (mean score, pass rate, cost per pass, latency)
 
 All interfaces are `typing.Protocol` — implement the methods, don't subclass. A complete custom system is 5 lines:
@@ -140,7 +189,7 @@ class MySystem:
         return {**example, "context": transformed, "response": transformed}
 ```
 
-For memory systems, the protocol is stateful:
+For stateful memory systems:
 
 ```python
 class MyMemory:
@@ -171,13 +220,13 @@ Pick a dataset name — the right evaluator is wired automatically.
 
 Some are configurable: `mmlu:anatomy`, `mgsm:de`, `bbh:causal_judgement`, `longbench:qasper`.
 
-Local files work too: `--dataset ./my_data.jsonl` (needs `"id"` and `"context"` keys).
+Local JSONL files work too: `--dataset ./my_data.jsonl`
 
 ---
 
 ## Built-in systems
 
-### Context systems (for proxy benchmarking)
+### Context systems (for `context-bench`)
 
 | System | What it does |
 |--------|-------------|
@@ -191,7 +240,7 @@ Local files work too: `--dataset ./my_data.jsonl` (needs `"id"` and `"context"` 
 |--------|----------|---------|
 | `naive` | Stuff all turns into the prompt | — |
 | `embedding` | Semantic search via sentence-transformers | — |
-| `rlm` | Multi-strategy retrieval (semantic + keyword + entity) + LLM | `pip install lancedb duckdb` |
+| `rlm` | Semantic + keyword + entity retrieval → LLM answer | `pip install lancedb duckdb` |
 | `mem0` | Mem0 managed memory | `uv sync --extra mem0` |
 | `zep` | Zep/Graphiti temporal knowledge graph | `uv sync --extra zep` |
 
@@ -199,15 +248,15 @@ Local files work too: `--dataset ./my_data.jsonl` (needs `"id"` and `"context"` 
 
 ## Memory evaluation details
 
-The memory benchmark tests whether a system can answer questions about conversations it ingested. Each example is a real multi-hundred-turn conversation from LoCoMo or LongMemEval.
+The memory benchmark tests whether a system can answer questions about conversations it ingested.
 
 **Item types** the system receives during ingestion:
 
 | Type | Example |
 |------|---------|
-| `ConversationTurn` | Chat messages with timestamps, speakers, and session IDs |
-| `DocumentChunk` | RAG document chunks with positions |
-| `PlatformEvent` | Slack messages, Git commits, Linear tickets |
+| `ConversationTurn` | Chat messages with timestamps, speakers, session IDs |
+| `DocumentChunk` | RAG document chunks |
+| `PlatformEvent` | Slack messages, Git commits, etc. |
 | `Declaration` | Explicit user preferences and facts |
 
 **Evaluators:**
@@ -218,11 +267,11 @@ The memory benchmark tests whether a system can answer questions about conversat
 | `LLMJudgeLoCoMo` | LLM rates answer quality with evidence matching |
 | `FalseMemoryRate` | Detects hallucinated/fabricated memories |
 
-Run with QA type filtering to focus on specific capabilities:
+Filter by QA type to focus on specific capabilities:
 
 ```bash
 context-bench memory \
-  --system rlm --relay http://localhost:18082 \
+  --system rlm --relay http://localhost:8080 \
   --dataset locomo -n 3 --qa-types temporal,multi_hop
 ```
 
@@ -230,44 +279,43 @@ context-bench memory \
 
 ## Autoresearch loop details
 
-The loop (`loop.py`) evolves a retrieval pipeline using LLM-proposed mutations.
+The loop (`loop.py`) evolves a retrieval pipeline by having Claude propose mutations.
 
-**Cycle:** read pipeline source + scores → Claude proposes one change → evaluate on held-out data → keep if better → repeat.
+**Cycle:** read pipeline source + scores → Claude proposes one change → evaluate → keep if better → repeat.
 
 ```bash
 uv run python3 loop.py \
-  --relay http://localhost:18082 \
+  --relay http://localhost:8080 \
   --model sonnet \
   --dataset locomo \
   --iterations 50 \
   --eval-n 2 \
-  --max-qa-per-conv 5 \
   --seed 42 \
   --output-dir loop_results/ \
   --pipeline-path pipeline/sota_pipeline.py \
-  --resume   # pick up from last checkpoint
+  --resume
 ```
 
 **Starting pipelines:**
 
-- `sota_pipeline.py` — strong baseline: coreference resolution, entity-relation triples, temporal ranking, query decomposition, multi-hop retrieval, embedding fallback
-- `entity_pipeline.py` — simpler entity extraction (~19% F1)
+- `sota_pipeline.py` — coreference resolution, entity-relation triples, temporal ranking, query decomposition, multi-hop retrieval, embedding fallback
+- `entity_pipeline.py` — simpler entity extraction baseline
 
 **Overnight operation:**
 
 ```bash
-bash watchdog6.sh   # checks every 10 min, restarts on crash or >150 min stall
+bash watchdog6.sh   # checks every 10 min, restarts on crash/stall
 ```
 
 **Output:**
 
 ```
 loop_results/
-├── loop_log.jsonl       # every iteration: score, mutation description, accepted?
-├── context_pipeline.py  # current best pipeline (evolves over time)
-├── baseline_score.json  # cached baseline score
+├── loop_log.jsonl       # every iteration: score, mutation, accepted?
+├── best_pipeline.py     # current best pipeline
+├── baseline_score.json  # cached baseline
 ├── run.log              # full stdout
-└── watchdog.log         # watchdog heartbeat + restart events
+└── watchdog.log         # restart events
 ```
 
 ---
@@ -284,22 +332,22 @@ context-bench memory [options]    # benchmark memory systems
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--proxy URL` | *(required)* | Endpoint URL (repeatable for comparison) |
-| `--name NAME` | hostname | Display name (paired with `--proxy`) |
-| `--dataset NAME` | *(required)* | Dataset name or `.jsonl` path (repeatable) |
-| `--model MODEL` | `gpt-4` | Model name passed to the proxy |
-| `-n` | all | Max examples per dataset |
+| `--name NAME` | hostname | Display name |
+| `--dataset NAME` | *(required)* | Dataset or `.jsonl` path (repeatable) |
+| `--model MODEL` | `gpt-4` | Model name |
+| `-n` | all | Max examples |
 | `--output {table,json,html}` | `table` | Output format |
-| `--score-field` | `f1` | Which score to aggregate |
+| `--score-field` | `f1` | Score to aggregate |
 | `--threshold` | `0.7` | Pass/fail cutoff |
 | `--judge-url URL` | — | LLM-as-judge endpoint |
 | `--max-workers N` | 1 | Concurrent threads |
-| `--cache-dir DIR` | — | Enable caching for resume |
+| `--cache-dir DIR` | — | Cache for resume |
 
 **Memory benchmark:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--system NAME` | *(required)* | System to evaluate: naive, embedding, rlm, mem0, zep (repeatable) |
+| `--system NAME` | *(required)* | naive, embedding, rlm, mem0, zep (repeatable) |
 | `--relay URL` | *(required)* | OpenAI-compatible LLM endpoint |
 | `--dataset NAME` | locomo | locomo or longmemeval (repeatable) |
 | `--model MODEL` | haiku | Model name |
@@ -313,8 +361,8 @@ context-bench memory [options]    # benchmark memory systems
 | Metric | What it measures |
 |--------|------------------|
 | `MeanScore` | Average score across examples |
-| `PassRate` | % of examples above a threshold |
-| `CompressionRatio` | 1 - (output_tokens / input_tokens) |
+| `PassRate` | % above threshold |
+| `CompressionRatio` | 1 - (output / input tokens) |
 | `CostOfPass` | Tokens per successful completion |
 | `Latency` | mean, median, p95, p99 |
 | `PerDatasetBreakdown` | Score sliced by dataset |
@@ -353,7 +401,7 @@ src/context_bench/
 ├── cache.py             # JSONL caching for resume
 ├── systems/             # OpenAIProxy, RLM, Embedding, Mem0, Zep, Naive, ...
 ├── datasets/            # 42+ loaders (includes memory/locomo, memory/longmemeval)
-├── evaluators/          # 11 evaluators (F1, MC, code, math, ROUGE, NLI, LLM judge, ...)
+├── evaluators/          # 11 evaluators
 ├── metrics/             # 7 metrics
 ├── reporters/           # Markdown, JSON, HTML output
 ├── loop/mutator.py      # LLM-driven pipeline mutator

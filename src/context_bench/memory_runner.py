@@ -119,7 +119,11 @@ def _run_typed_example(
     system.reset()
 
     t_ingest = time.monotonic()
-    ingest_result = system.ingest(example.items)
+    try:
+        ingest_result = system.ingest(example.items)
+    except (AttributeError, TypeError):
+        # Legacy system expects list[dict] — convert typed items to dicts
+        ingest_result = system.ingest(_items_to_dicts(example.items))
     ingest_latency = time.monotonic() - t_ingest
 
     for j, bq in enumerate(example.queries):
@@ -246,6 +250,36 @@ def _run_legacy_example(
         ))
 
     return rows
+
+
+def _items_to_dicts(items: list[Any]) -> list[dict[str, Any]]:
+    """Convert typed Item objects to plain dicts for legacy systems."""
+    from context_bench.memory_types import ConversationTurn, DocumentChunk, PlatformEvent, Declaration
+
+    result: list[dict[str, Any]] = []
+    for item in items:
+        if isinstance(item, ConversationTurn):
+            d: dict[str, Any] = {"content": item.content, "role": item.role}
+            if item.timestamp:
+                d["timestamp"] = item.timestamp
+            if item.speaker:
+                d["speaker"] = item.speaker
+            if item.session_id:
+                d["session_id"] = item.session_id
+        elif isinstance(item, DocumentChunk):
+            d = {"content": item.content, "document_id": item.document_id, "position": item.position}
+            if item.source:
+                d["source"] = item.source
+        elif isinstance(item, PlatformEvent):
+            d = {"content": item.content, "platform": item.platform, "timestamp": item.timestamp}
+            if item.author:
+                d["author"] = item.author
+        elif isinstance(item, Declaration):
+            d = {"content": item.value, "key": item.key, "role": "declaration"}
+        else:
+            d = {"content": str(item), "role": "unknown"}
+        result.append(d)
+    return result
 
 
 def _items_to_context_snippet(items: list[Any], max_chars: int = 3000) -> str:

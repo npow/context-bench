@@ -97,44 +97,48 @@ class ContextPipeline:
         return "\n".join(lines)
 
     def _create_observation(self, chunk_text: str, start_idx: int, end_idx: int) -> str:
+        system = (
+            "You are the memory consciousness of an AI assistant. Your observations "
+            "will be the ONLY information the assistant has about past interactions. "
+            "Extract observations that capture every fact, date, preference, and event."
+        )
         prompt = (
-            "Extract ALL facts from this conversation excerpt into structured observations.\n\n"
-            "## REQUIRED FORMAT\n"
-            "For each fact, write one line:\n"
-            "  [T###] CATEGORY: fact description\n\n"
-            "Categories: DATE, FACT, EVENT, PURCHASE, PERSON, PREFERENCE, UPDATE, NUMBER\n\n"
-            "## CRITICAL RULES\n"
-            "1. DATES: Extract EVERY date mention. For explicit dates write:\n"
-            "   [T42] DATE: January 5th - user bought a smoker\n"
-            "   For relative dates, RESOLVE them if possible:\n"
-            "   [T100] DATE: 'last month' (relative to nearby date March 10 = ~February) - user visited dentist\n"
-            "   [T55] DATE: 'yesterday' - user went hiking (resolve if nearby date known)\n"
-            "   [T200] DATE: '2 weeks ago' - user started new diet\n"
-            "2. UPDATES: When a fact CHANGES, note both old and new:\n"
-            "   [T150] UPDATE: job changed from 'software engineer' to 'senior engineer'\n"
-            "3. EVENTS with PEOPLE: Note who was involved:\n"
-            "   [T80] PERSON: met Sarah at farmer's market\n"
-            "   [T120] PERSON: met Australian tourist at coffee shop\n"
-            "4. NUMBERS: Capture ALL quantities, prices, counts:\n"
-            "   [T30] PURCHASE: bought silver necklace for $45\n"
-            "   [T90] NUMBER: team grew from 4 to 5 engineers\n"
-            "5. Be EXHAUSTIVE - every fact matters for answering questions later.\n"
-            "   Do NOT skip items that seem minor.\n\n"
+            "Extract observations from this conversation excerpt.\n\n"
+            "## FORMAT\n"
+            "Each observation is one bullet with a priority emoji and turn index:\n"
+            "* [RED] (T42) User bought a smoker today. (meaning January 15th)\n"
+            "* [YLW] (T55) User prefers hiking in the mountains.\n"
+            "* [RED] (T80) User's team grew from 4 to 5 engineers (replacing previous count of 4).\n"
+            "* [GRN] (T90) Assistant suggested using React for the frontend.\n"
+            "* [DONE] (T100) User completed the job application.\n\n"
+            "Priority levels:\n"
+            "- [RED] High: explicit user facts, preferences, life events, dates, numbers\n"
+            "- [YLW] Medium: project details, learned info, assistant suggestions\n"
+            "- [GRN] Low: minor details, uncertain observations\n"
+            "- [DONE] Completed: finished tasks, resolved questions\n\n"
+            "## TEMPORAL ANCHORING (CRITICAL)\n"
+            "For EVERY date mention, include BOTH the turn index AND the resolved date:\n"
+            "- Explicit date: (T42) User bought smoker. (January 15th)\n"
+            "- Relative date with context: (T55) User visited dentist last month. (meaning ~December, since nearby turns mention January)\n"
+            "- Relative date without context: (T70) User said 'yesterday' went hiking. (relative to T70)\n"
+            "- Duration: (T80) User has been a member for 2 weeks. (meaning joined ~T66 area)\n\n"
+            "## STATE CHANGES (CRITICAL)\n"
+            "When user's situation changes, note it as a superseding update:\n"
+            "- (T150) User now works at Google (replacing previous: worked at Meta).\n"
+            "- (T200) User's team size is now 5 (previously 4 at T80).\n\n"
+            "## RULES\n"
+            "- Be EXHAUSTIVE. Every fact, person, place, number, price, date matters.\n"
+            "- Note WHO said/did things (user vs assistant).\n"
+            "- Use precise verbs: 'purchased' not 'got', 'relocated to' not 'went to'.\n"
+            "- Group related items but don't merge distinct facts.\n"
+            "- Count individual items explicitly (don't say 'several', say '3').\n\n"
             f"Conversation excerpt (turns T{start_idx}-T{end_idx - 1}):\n{chunk_text}"
         )
 
         try:
             return self._chat(
                 [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You extract structured observations from conversations. "
-                            "Your output will be used to answer precise questions about dates, "
-                            "counts, and facts. Be thorough and always include turn indices [T###]. "
-                            "For temporal questions, the turn index IS the temporal anchor."
-                        ),
-                    },
+                    {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
                 ],
                 model="claude-haiku-4-5-20251001",
@@ -182,16 +186,16 @@ class ContextPipeline:
 
         if is_temporal:
             hint = (
-                "This is a TEMPORAL question requiring date/time reasoning.\n"
-                "STEP 1: Find the relevant events in the observations with their [T###] indices and dates.\n"
-                "STEP 2: If dates are given (e.g., 'January 5th', 'March 10'), compute the answer directly.\n"
-                "STEP 3: If only turn indices are available, use them to determine ordering "
-                "(lower T = earlier, higher T = later).\n"
-                "STEP 4: For 'how many days' questions, count calendar days between the two dates.\n"
-                "STEP 5: For 'which came first' questions, compare turn indices — lower T = first.\n"
-                "IMPORTANT: Always look for DATE entries in the observations. "
-                "Resolve relative dates ('last month', '2 weeks ago') using nearby absolute dates.\n"
-                "Show your work briefly, then give the final answer."
+                "This is a TEMPORAL question. The observations contain turn indices (T###) "
+                "and dates in parentheses like '(January 5th)' or '(meaning ~February)'.\n\n"
+                "To answer:\n"
+                "1. Find BOTH events mentioned in the question in the observations.\n"
+                "2. Extract their dates. Look for '(meaning DATE)' or explicit dates.\n"
+                "3. For 'how many days' questions: count calendar days between the two dates.\n"
+                "4. For 'which came first' questions: lower turn number (T) = happened first.\n"
+                "5. For 'how long had X been Y when Z': find when X started Y and when Z happened, compute difference.\n\n"
+                "IMPORTANT: The turn index (T###) gives temporal ordering. Lower T = earlier in conversation.\n"
+                "Give only the final answer (e.g., '38 days', 'the persistent cough', '2 weeks')."
             )
         elif is_knowledge_update:
             hint = (
