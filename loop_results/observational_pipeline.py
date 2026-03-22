@@ -185,17 +185,47 @@ class ContextPipeline:
         ))
 
         if is_temporal:
+            # Two-pass: first extract dates with haiku, then answer with sonnet
+            try:
+                date_extraction = self._chat(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You extract dates and temporal facts from memory observations. "
+                                "Be precise about dates and turn indices."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Question: {question}\n\n"
+                                f"Memory observations:\n{observations_text}\n\n"
+                                "Find ALL dates and temporal facts relevant to this question. "
+                                "For each event mentioned in the question:\n"
+                                "1. Find the observation that mentions it\n"
+                                "2. Note its turn index (T###)\n"
+                                "3. Note any date mentioned (explicit or resolved)\n"
+                                "4. If the question asks 'which came first', note both turn indices\n"
+                                "5. If the question asks 'how many days', note both dates\n\n"
+                                "Output format:\n"
+                                "EVENT 1: [description] at T### on [date]\n"
+                                "EVENT 2: [description] at T### on [date]\n"
+                                "COMPUTATION: [date math if needed]"
+                            ),
+                        },
+                    ],
+                    model="claude-haiku-4-5-20251001",
+                )
+            except Exception:
+                date_extraction = ""
+
             hint = (
-                "This is a TEMPORAL question. The observations contain turn indices (T###) "
-                "and dates in parentheses like '(January 5th)' or '(meaning ~February)'.\n\n"
-                "To answer:\n"
-                "1. Find BOTH events mentioned in the question in the observations.\n"
-                "2. Extract their dates. Look for '(meaning DATE)' or explicit dates.\n"
-                "3. For 'how many days' questions: count calendar days between the two dates.\n"
-                "4. For 'which came first' questions: lower turn number (T) = happened first.\n"
-                "5. For 'how long had X been Y when Z': find when X started Y and when Z happened, compute difference.\n\n"
-                "IMPORTANT: The turn index (T###) gives temporal ordering. Lower T = earlier in conversation.\n"
-                "Give only the final answer (e.g., '38 days', 'the persistent cough', '2 weeks')."
+                "This is a TEMPORAL question. Below are extracted date facts:\n\n"
+                f"DATE EVIDENCE:\n{date_extraction}\n\n"
+                "Use the extracted dates and turn indices to compute the answer. "
+                "Lower turn number (T) = happened earlier. "
+                "Give ONLY the final answer (e.g., '38 days', 'the persistent cough', '2 weeks')."
             )
         elif is_knowledge_update:
             hint = (
