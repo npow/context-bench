@@ -68,11 +68,36 @@ class ContextPipeline:
     # Ingest — LLM-based observation extraction
     # ------------------------------------------------------------------
 
+    # Date patterns for extraction
+    _DATE_PATTERNS = [
+        re.compile(r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?\b', re.IGNORECASE),
+        re.compile(r'\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\b', re.IGNORECASE),
+        re.compile(r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}\b', re.IGNORECASE),
+        re.compile(r'\b\d{4}-\d{2}-\d{2}\b'),
+    ]
+    _RELATIVE_DATE_PATTERNS = [
+        re.compile(r'\b(yesterday|today|tomorrow)\b', re.IGNORECASE),
+        re.compile(r'\b(last|next|this)\s+(week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b', re.IGNORECASE),
+        re.compile(r'\b(\d+)\s+(days?|weeks?|months?|years?)\s+ago\b', re.IGNORECASE),
+        re.compile(r'\bin\s+(\d+)\s+(days?|weeks?|months?)\b', re.IGNORECASE),
+    ]
+
     def ingest(self, turns: list[dict[str, Any]]) -> None:
         self._turns = turns
         n = len(turns)
 
-        # Process turns in chunks, creating observations for each
+        # Step 1: Build date index (pure Python, no LLM)
+        self._date_index: list[tuple[int, str]] = []  # (turn_idx, date_mention)
+        for idx, turn in enumerate(turns):
+            content = self._get_turn(turn, "content", "") or ""
+            for pat in self._DATE_PATTERNS:
+                for m in pat.finditer(content):
+                    self._date_index.append((idx, m.group()))
+            for pat in self._RELATIVE_DATE_PATTERNS:
+                for m in pat.finditer(content):
+                    self._date_index.append((idx, m.group()))
+
+        # Step 2: Process turns in chunks, creating observations for each
         for start in range(0, n, _CHUNK_SIZE):
             chunk = turns[start:start + _CHUNK_SIZE]
             chunk_text = self._format_chunk(chunk, start)
@@ -185,33 +210,34 @@ class ContextPipeline:
         ))
 
         if is_temporal:
-            # Two-pass: first extract dates with haiku, then answer with sonnet
+            # Build date index block from regex-extracted dates
+            date_lines = []
+            for turn_idx, date_str in self._date_index:
+                # Get brief context from the turn
+                turn = self._turns[turn_idx]
+                content = (self._get_turn(turn, "content", "") or "")[:150]
+                date_lines.append(f"  T{turn_idx}: '{date_str}' — {content[:100]}")
+            date_index_block = "\n".join(date_lines[-50:]) if date_lines else "(no explicit dates found)"
+
+            # Two-pass: haiku extracts relevant dates, sonnet answers
             try:
                 date_extraction = self._chat(
                     [
                         {
                             "role": "system",
-                            "content": (
-                                "You extract dates and temporal facts from memory observations. "
-                                "Be precise about dates and turn indices."
-                            ),
+                            "content": "You extract dates relevant to a specific question from conversation memory.",
                         },
                         {
                             "role": "user",
                             "content": (
                                 f"Question: {question}\n\n"
-                                f"Memory observations:\n{observations_text}\n\n"
-                                "Find ALL dates and temporal facts relevant to this question. "
-                                "For each event mentioned in the question:\n"
-                                "1. Find the observation that mentions it\n"
-                                "2. Note its turn index (T###)\n"
-                                "3. Note any date mentioned (explicit or resolved)\n"
-                                "4. If the question asks 'which came first', note both turn indices\n"
-                                "5. If the question asks 'how many days', note both dates\n\n"
-                                "Output format:\n"
-                                "EVENT 1: [description] at T### on [date]\n"
-                                "EVENT 2: [description] at T### on [date]\n"
-                                "COMPUTATION: [date math if needed]"
+                                f"## ALL DATES MENTIONED IN CONVERSATION\n{date_index_block}\n\n"
+                                f"## MEMORY OBSERVATIONS\n{observations_text}\n\n"
+                                "Find the specific dates for EACH event mentioned in the question. "
+                                "Output:\n"
+                                "EVENT 1: [what happened] — DATE: [exact date] (from T###)\n"
+                                "EVENT 2: [what happened] — DATE: [exact date] (from T###)\n"
+                                "ANSWER: [compute the answer: count days, determine order, etc.]"
                             ),
                         },
                     ],
@@ -221,11 +247,11 @@ class ContextPipeline:
                 date_extraction = ""
 
             hint = (
-                "This is a TEMPORAL question. Below are extracted date facts:\n\n"
-                f"DATE EVIDENCE:\n{date_extraction}\n\n"
-                "Use the extracted dates and turn indices to compute the answer. "
-                "Lower turn number (T) = happened earlier. "
-                "Give ONLY the final answer (e.g., '38 days', 'the persistent cough', '2 weeks')."
+                "This is a TEMPORAL question. A date analysis has been performed:\n\n"
+                f"{date_extraction}\n\n"
+                "Use the analysis above. If it computed an answer, verify and return it. "
+                "If not, use the turn indices (lower T = earlier) to determine ordering. "
+                "Give ONLY the final answer."
             )
         elif is_knowledge_update:
             hint = (
