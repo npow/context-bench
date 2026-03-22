@@ -31,7 +31,7 @@ from collections import defaultdict
 from typing import Any
 
 
-_CHUNK_SIZE = 50  # turns per observation batch
+_CHUNK_SIZE = 30  # turns per observation batch (smaller = more detail per turn)
 _MAX_OBSERVATION_TOKENS = 30000  # token budget for observations in prompt
 
 
@@ -117,7 +117,7 @@ class ContextPipeline:
         for i, turn in enumerate(chunk):
             idx = start_idx + i
             role = (self._get_turn(turn, "role", "user") or "user").upper()
-            content = (self._get_turn(turn, "content", "") or "")[:400]
+            content = (self._get_turn(turn, "content", "") or "")[:600]
             lines.append(f"[T{idx}] {role}: {content}")
         return "\n".join(lines)
 
