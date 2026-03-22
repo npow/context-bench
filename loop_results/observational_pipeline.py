@@ -98,16 +98,28 @@ class ContextPipeline:
 
     def _create_observation(self, chunk_text: str, start_idx: int, end_idx: int) -> str:
         prompt = (
-            "You are an Observer agent creating structured memory notes from a conversation.\n\n"
-            "Create a DENSE list of observations from this conversation excerpt. For each observation:\n"
-            "- Capture specific facts, events, preferences, and decisions\n"
-            "- Include ALL dates mentioned (explicit like 'January 5th' or relative like 'last month', 'yesterday', '2 weeks ago')\n"
-            "- For relative dates, note the turn index so timing can be inferred\n"
-            "- Track knowledge updates: if the user's situation changed (new job, moved, etc.), note BOTH old and new values\n"
-            "- Note who said what (user vs assistant)\n"
-            "- Capture numbers, quantities, prices, durations\n"
-            "- Mark important life events with [IMPORTANT]\n\n"
-            "Format as a bulleted list. Be comprehensive but concise — capture ALL facts, skip filler.\n\n"
+            "Extract ALL facts from this conversation excerpt into structured observations.\n\n"
+            "## REQUIRED FORMAT\n"
+            "For each fact, write one line:\n"
+            "  [T###] CATEGORY: fact description\n\n"
+            "Categories: DATE, FACT, EVENT, PURCHASE, PERSON, PREFERENCE, UPDATE, NUMBER\n\n"
+            "## CRITICAL RULES\n"
+            "1. DATES: Extract EVERY date mention. For explicit dates write:\n"
+            "   [T42] DATE: January 5th - user bought a smoker\n"
+            "   For relative dates, RESOLVE them if possible:\n"
+            "   [T100] DATE: 'last month' (relative to nearby date March 10 = ~February) - user visited dentist\n"
+            "   [T55] DATE: 'yesterday' - user went hiking (resolve if nearby date known)\n"
+            "   [T200] DATE: '2 weeks ago' - user started new diet\n"
+            "2. UPDATES: When a fact CHANGES, note both old and new:\n"
+            "   [T150] UPDATE: job changed from 'software engineer' to 'senior engineer'\n"
+            "3. EVENTS with PEOPLE: Note who was involved:\n"
+            "   [T80] PERSON: met Sarah at farmer's market\n"
+            "   [T120] PERSON: met Australian tourist at coffee shop\n"
+            "4. NUMBERS: Capture ALL quantities, prices, counts:\n"
+            "   [T30] PURCHASE: bought silver necklace for $45\n"
+            "   [T90] NUMBER: team grew from 4 to 5 engineers\n"
+            "5. Be EXHAUSTIVE - every fact matters for answering questions later.\n"
+            "   Do NOT skip items that seem minor.\n\n"
             f"Conversation excerpt (turns T{start_idx}-T{end_idx - 1}):\n{chunk_text}"
         )
 
@@ -118,8 +130,9 @@ class ContextPipeline:
                         "role": "system",
                         "content": (
                             "You extract structured observations from conversations. "
-                            "Be thorough — every fact, date, name, number, and preference matters. "
-                            "Always note turn indices [T###] for temporal reference."
+                            "Your output will be used to answer precise questions about dates, "
+                            "counts, and facts. Be thorough and always include turn indices [T###]. "
+                            "For temporal questions, the turn index IS the temporal anchor."
                         ),
                     },
                     {"role": "user", "content": prompt},
@@ -169,10 +182,16 @@ class ContextPipeline:
 
         if is_temporal:
             hint = (
-                "This is a TEMPORAL question. Look at the turn indices [T###] and any "
-                "dates mentioned in the observations to determine timing. Higher T numbers "
-                "= later in the conversation. If specific dates are mentioned, use them "
-                "to compute exact day counts. Show your date arithmetic."
+                "This is a TEMPORAL question requiring date/time reasoning.\n"
+                "STEP 1: Find the relevant events in the observations with their [T###] indices and dates.\n"
+                "STEP 2: If dates are given (e.g., 'January 5th', 'March 10'), compute the answer directly.\n"
+                "STEP 3: If only turn indices are available, use them to determine ordering "
+                "(lower T = earlier, higher T = later).\n"
+                "STEP 4: For 'how many days' questions, count calendar days between the two dates.\n"
+                "STEP 5: For 'which came first' questions, compare turn indices — lower T = first.\n"
+                "IMPORTANT: Always look for DATE entries in the observations. "
+                "Resolve relative dates ('last month', '2 weeks ago') using nearby absolute dates.\n"
+                "Show your work briefly, then give the final answer."
             )
         elif is_knowledge_update:
             hint = (
@@ -180,6 +199,18 @@ class ContextPipeline:
                 "contain updates where a fact changed. Look for the MOST RECENT value "
                 "(highest turn index). If the observation notes 'changed from X to Y', "
                 "the answer is Y."
+            )
+        is_counting = any(kw in q_lower for kw in (
+            "how many", "how much", "total", "count", "number of",
+        ))
+
+        if is_counting and not is_temporal:
+            hint = (
+                "This is a COUNTING/AGGREGATION question. "
+                "Scan ALL observations exhaustively for every instance. "
+                "List each item you find with its turn index, then count the total. "
+                "Do NOT stop after finding a few — there may be items scattered across "
+                "many different parts of the conversation. Be thorough."
             )
         else:
             hint = (
