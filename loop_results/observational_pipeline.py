@@ -68,36 +68,11 @@ class ContextPipeline:
     # Ingest — LLM-based observation extraction
     # ------------------------------------------------------------------
 
-    # Date patterns for extraction
-    _DATE_PATTERNS = [
-        re.compile(r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?\b', re.IGNORECASE),
-        re.compile(r'\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\b', re.IGNORECASE),
-        re.compile(r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}\b', re.IGNORECASE),
-        re.compile(r'\b\d{4}-\d{2}-\d{2}\b'),
-    ]
-    _RELATIVE_DATE_PATTERNS = [
-        re.compile(r'\b(yesterday|today|tomorrow)\b', re.IGNORECASE),
-        re.compile(r'\b(last|next|this)\s+(week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b', re.IGNORECASE),
-        re.compile(r'\b(\d+)\s+(days?|weeks?|months?|years?)\s+ago\b', re.IGNORECASE),
-        re.compile(r'\bin\s+(\d+)\s+(days?|weeks?|months?)\b', re.IGNORECASE),
-    ]
-
     def ingest(self, turns: list[dict[str, Any]]) -> None:
         self._turns = turns
         n = len(turns)
 
-        # Step 1: Build date index (pure Python, no LLM)
-        self._date_index: list[tuple[int, str]] = []  # (turn_idx, date_mention)
-        for idx, turn in enumerate(turns):
-            content = self._get_turn(turn, "content", "") or ""
-            for pat in self._DATE_PATTERNS:
-                for m in pat.finditer(content):
-                    self._date_index.append((idx, m.group()))
-            for pat in self._RELATIVE_DATE_PATTERNS:
-                for m in pat.finditer(content):
-                    self._date_index.append((idx, m.group()))
-
-        # Step 2: Process turns in chunks, creating observations for each
+        # Process turns in chunks, creating observations for each
         for start in range(0, n, _CHUNK_SIZE):
             chunk = turns[start:start + _CHUNK_SIZE]
             chunk_text = self._format_chunk(chunk, start)
@@ -120,60 +95,38 @@ class ContextPipeline:
             role = (self._get_turn(turn, "role", "user") or "user").upper()
             content = (self._get_turn(turn, "content", "") or "")[:400]
             session = self._get_turn(turn, "session_id", None)
-            # Mark session boundaries — these indicate separate conversations at different times
             if session is not None and session != prev_session:
-                lines.append(f"--- Session {session} ---")
+                lines.append(f"--- Session {session} (separate conversation, later in time) ---")
                 prev_session = session
             lines.append(f"[T{idx}] {role}: {content}")
         return "\n".join(lines)
 
     def _create_observation(self, chunk_text: str, start_idx: int, end_idx: int) -> str:
-        system = (
-            "You are the memory consciousness of an AI assistant. Your observations "
-            "will be the ONLY information the assistant has about past interactions. "
-            "Extract observations that capture every fact, date, preference, and event."
-        )
         prompt = (
-            "Extract observations from this conversation excerpt.\n\n"
-            "## FORMAT\n"
-            "Each observation is one bullet with a priority emoji and turn index:\n"
-            "* [RED] (T42) User bought a smoker today. (meaning January 15th)\n"
-            "* [YLW] (T55) User prefers hiking in the mountains.\n"
-            "* [RED] (T80) User's team grew from 4 to 5 engineers (replacing previous count of 4).\n"
-            "* [GRN] (T90) Assistant suggested using React for the frontend.\n"
-            "* [DONE] (T100) User completed the job application.\n\n"
-            "Priority levels:\n"
-            "- [RED] High: explicit user facts, preferences, life events, dates, numbers\n"
-            "- [YLW] Medium: project details, learned info, assistant suggestions\n"
-            "- [GRN] Low: minor details, uncertain observations\n"
-            "- [DONE] Completed: finished tasks, resolved questions\n\n"
-            "## TEMPORAL ANCHORING (CRITICAL)\n"
-            "For EVERY date mention, include BOTH the turn index AND the resolved date:\n"
-            "- Explicit date: (T42) User bought smoker. (January 15th)\n"
-            "- Relative date with context: (T55) User visited dentist last month. (meaning ~December, since nearby turns mention January)\n"
-            "- Relative date without context: (T70) User said 'yesterday' went hiking. (relative to T70)\n"
-            "- Duration: (T80) User has been a member for 2 weeks. (meaning joined ~T66 area)\n\n"
-            "## STATE CHANGES (CRITICAL)\n"
-            "When user's situation changes, note it as a superseding update:\n"
-            "- (T150) User now works at Google (replacing previous: worked at Meta).\n"
-            "- (T200) User's team size is now 5 (previously 4 at T80).\n\n"
-            "## SESSION BOUNDARIES\n"
-            "Lines like '--- Session N ---' mark separate conversations at DIFFERENT TIMES.\n"
-            "Lower session number = earlier conversation. This is critical for temporal ordering.\n"
-            "Always note which session an event occurred in: (T42, Session 3)\n\n"
-            "## RULES\n"
-            "- Be EXHAUSTIVE. Every fact, person, place, number, price, date matters.\n"
-            "- Note WHO said/did things (user vs assistant).\n"
-            "- Use precise verbs: 'purchased' not 'got', 'relocated to' not 'went to'.\n"
-            "- Group related items but don't merge distinct facts.\n"
-            "- Count individual items explicitly (don't say 'several', say '3').\n\n"
+            "You are an Observer agent creating structured memory notes from a conversation.\n\n"
+            "Create a DENSE list of observations from this conversation excerpt. For each observation:\n"
+            "- Capture specific facts, events, preferences, and decisions\n"
+            "- Include ALL dates mentioned (explicit like 'January 5th' or relative like 'last month', 'yesterday', '2 weeks ago')\n"
+            "- For relative dates, note the turn index so timing can be inferred\n"
+            "- Track knowledge updates: if the user's situation changed (new job, moved, etc.), note BOTH old and new values\n"
+            "- Note who said what (user vs assistant)\n"
+            "- Capture numbers, quantities, prices, durations\n"
+            "- Mark important life events with [IMPORTANT]\n\n"
+            "Format as a bulleted list. Be comprehensive but concise — capture ALL facts, skip filler.\n\n"
             f"Conversation excerpt (turns T{start_idx}-T{end_idx - 1}):\n{chunk_text}"
         )
 
         try:
             return self._chat(
                 [
-                    {"role": "system", "content": system},
+                    {
+                        "role": "system",
+                        "content": (
+                            "You extract structured observations from conversations. "
+                            "Be thorough — every fact, date, name, number, and preference matters. "
+                            "Always note turn indices [T###] for temporal reference."
+                        ),
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 model="claude-haiku-4-5-20251001",
@@ -220,48 +173,11 @@ class ContextPipeline:
         ))
 
         if is_temporal:
-            # Build date index block from regex-extracted dates
-            date_lines = []
-            for turn_idx, date_str in self._date_index:
-                # Get brief context from the turn
-                turn = self._turns[turn_idx]
-                content = (self._get_turn(turn, "content", "") or "")[:150]
-                date_lines.append(f"  T{turn_idx}: '{date_str}' — {content[:100]}")
-            date_index_block = "\n".join(date_lines[-50:]) if date_lines else "(no explicit dates found)"
-
-            # Two-pass: haiku extracts relevant dates, sonnet answers
-            try:
-                date_extraction = self._chat(
-                    [
-                        {
-                            "role": "system",
-                            "content": "You extract dates relevant to a specific question from conversation memory.",
-                        },
-                        {
-                            "role": "user",
-                            "content": (
-                                f"Question: {question}\n\n"
-                                f"## ALL DATES MENTIONED IN CONVERSATION\n{date_index_block}\n\n"
-                                f"## MEMORY OBSERVATIONS\n{observations_text}\n\n"
-                                "Find the specific dates for EACH event mentioned in the question. "
-                                "Output:\n"
-                                "EVENT 1: [what happened] — DATE: [exact date] (from T###)\n"
-                                "EVENT 2: [what happened] — DATE: [exact date] (from T###)\n"
-                                "ANSWER: [compute the answer: count days, determine order, etc.]"
-                            ),
-                        },
-                    ],
-                    model="claude-haiku-4-5-20251001",
-                )
-            except Exception:
-                date_extraction = ""
-
             hint = (
-                "This is a TEMPORAL question. A date analysis has been performed:\n\n"
-                f"{date_extraction}\n\n"
-                "Use the analysis above. If it computed an answer, verify and return it. "
-                "If not, use the turn indices (lower T = earlier) to determine ordering. "
-                "Give ONLY the final answer."
+                "This is a TEMPORAL question. Look at the turn indices [T###] and any "
+                "dates mentioned in the observations to determine timing. Higher T numbers "
+                "= later in the conversation. If specific dates are mentioned, use them "
+                "to compute exact day counts. Show your date arithmetic."
             )
         elif is_knowledge_update:
             hint = (
@@ -269,18 +185,6 @@ class ContextPipeline:
                 "contain updates where a fact changed. Look for the MOST RECENT value "
                 "(highest turn index). If the observation notes 'changed from X to Y', "
                 "the answer is Y."
-            )
-        is_counting = any(kw in q_lower for kw in (
-            "how many", "how much", "total", "count", "number of",
-        ))
-
-        if is_counting and not is_temporal:
-            hint = (
-                "This is a COUNTING/AGGREGATION question. "
-                "Scan ALL observations exhaustively for every instance. "
-                "List each item you find with its turn index, then count the total. "
-                "Do NOT stop after finding a few — there may be items scattered across "
-                "many different parts of the conversation. Be thorough."
             )
         else:
             hint = (
