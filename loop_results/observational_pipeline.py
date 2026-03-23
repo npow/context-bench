@@ -31,7 +31,7 @@ from collections import defaultdict
 from typing import Any
 
 
-_CHUNK_SIZE = 30  # turns per observation batch (smaller = more detail per turn)
+_CHUNK_SIZE = 50  # turns per observation batch
 _MAX_OBSERVATION_TOKENS = 30000  # token budget for observations in prompt
 
 
@@ -114,10 +114,16 @@ class ContextPipeline:
 
     def _format_chunk(self, chunk: list, start_idx: int) -> str:
         lines = []
+        prev_session = None
         for i, turn in enumerate(chunk):
             idx = start_idx + i
             role = (self._get_turn(turn, "role", "user") or "user").upper()
-            content = (self._get_turn(turn, "content", "") or "")[:600]
+            content = (self._get_turn(turn, "content", "") or "")[:400]
+            session = self._get_turn(turn, "session_id", None)
+            # Mark session boundaries — these indicate separate conversations at different times
+            if session is not None and session != prev_session:
+                lines.append(f"--- Session {session} ---")
+                prev_session = session
             lines.append(f"[T{idx}] {role}: {content}")
         return "\n".join(lines)
 
@@ -151,6 +157,10 @@ class ContextPipeline:
             "When user's situation changes, note it as a superseding update:\n"
             "- (T150) User now works at Google (replacing previous: worked at Meta).\n"
             "- (T200) User's team size is now 5 (previously 4 at T80).\n\n"
+            "## SESSION BOUNDARIES\n"
+            "Lines like '--- Session N ---' mark separate conversations at DIFFERENT TIMES.\n"
+            "Lower session number = earlier conversation. This is critical for temporal ordering.\n"
+            "Always note which session an event occurred in: (T42, Session 3)\n\n"
             "## RULES\n"
             "- Be EXHAUSTIVE. Every fact, person, place, number, price, date matters.\n"
             "- Note WHO said/did things (user vs assistant).\n"

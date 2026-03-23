@@ -69,11 +69,9 @@ class Mem0System:
                 },
             },
             "embedder": {
-                "provider": "openai",
+                "provider": "huggingface",
                 "config": {
-                    "model": "text-embedding-3-small",
-                    "openai_base_url": f"{self._relay_url}/v1",
-                    "api_key": self._api_key or "relay",
+                    "model": "sentence-transformers/all-MiniLM-L6-v2",
                 },
             },
             # Use in-memory vector store — no external DB needed
@@ -96,9 +94,15 @@ class Mem0System:
         # Use a fresh user_id per conversation to isolate memory state
         self._user_id = str(uuid.uuid4())
 
-    def ingest(self, turns: list[dict[str, str]]) -> None:
+    def ingest(self, turns: list) -> None:
+        # Convert typed Items to dicts if needed
+        messages = []
+        for t in turns:
+            if hasattr(t, "role") and hasattr(t, "content"):
+                messages.append({"role": t.role, "content": t.content})
+            elif isinstance(t, dict):
+                messages.append({"role": t.get("role", "user"), "content": t.get("content", "")})
         # Mem0 ingests the full conversation at once
-        messages = [{"role": t["role"], "content": t["content"]} for t in turns]
         self._mem.add(messages, user_id=self._user_id)
 
     def query(self, question: str) -> str:

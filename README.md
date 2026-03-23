@@ -6,63 +6,69 @@
 
 **Measure whether your LLM context system actually works — in one command.**
 
-You built something that sits between a user and an LLM: a context compressor, a RAG pipeline, a memory system, a reranker. Does it help? Does it make them worse? Is it worth the tokens? context-bench runs your system against 42+ standard datasets so you don't have to build your own eval harness.
+You built something that sits between a user and an LLM: a context compressor, a RAG pipeline, a memory system, a reranker. Does it help? Does it hurt? Is it worth the tokens? context-bench runs your system against 42+ standard datasets so you don't have to build your own eval harness.
 
 ---
 
 ## Results: LoCoMo long-conversation memory
 
-[LoCoMo](https://huggingface.co/datasets/snap-research/LoCoMo) tests whether a system can answer questions about 400+ turn conversations — temporal reasoning, multi-hop lookups, adversarial traps. The original paper's best baseline (GPT-3.5-turbo-16K) scores **37.8% F1**. Human ceiling is **87.9% F1**.
+[LoCoMo](https://huggingface.co/datasets/snap-research/LoCoMo) tests whether a system can answer questions about 400–700 turn conversations — temporal reasoning, multi-hop lookups, adversarial traps. The original paper's best baseline (GPT-3.5-turbo-16K) scores **37.8% F1**. Human ceiling is **87.9% F1**.
 
-Here's a real run from context-bench, 3 conversations, 70 queries across all question types:
+Full benchmark run — all 10 conversations, all 1,986 questions, scored with both token-level F1 and an LLM judge:
 
 | System | F1 | LLM Judge | Strategy |
 |--------|-----|-----------|----------|
-| naive | 0.383 | 0.63 | Stuff all 400+ turns into the prompt (~14K tokens/query) |
-| embedding | 0.330 | 0.51 | Retrieve top-50 turns by semantic similarity (~1.5K tokens/query) |
-| **rlm** | **0.431** | **0.69** | Multi-strategy retrieval (semantic + keyword + entity) → LLM answer |
-| bm25_entity_v4 | 0.393 | 0.59 | Auto-evolved via autoresearch loop: BM25 + entity index + fact store |
+| naive | 6.7% | 10.7% | Stuff all turns into the prompt |
+| embedding | 15.1% | 21.2% | Top-50 turns by semantic similarity |
+| **rlm** | **37.4%** | **53.3%** | Multi-strategy retrieval (semantic + keyword + entity) → LLM |
 
-**How this compares to published systems** (note: most report LLM-as-Judge, not raw F1):
+Per question type (RLM system):
+
+| Type | F1 | LLM Judge | N | What it tests |
+|------|-----|-----------|---|---------------|
+| single_hop | 35.7% | 55.3% | 282 | Direct fact lookup |
+| multi_hop | 41.6% | 60.4% | 321 | Reasoning across multiple turns |
+| open_domain | 49.9% | 69.1% | 841 | General knowledge from conversation |
+| temporal | 23.2% | 55.2% | 96 | Time-sensitive questions |
+| adversarial | 14.9% | 16.8% | 446 | Questions about things never discussed |
+
+**How this compares to published systems:**
 
 | System | Metric | Score | Source |
 |--------|--------|-------|--------|
-| GPT-3.5-16K (paper baseline) | F1 | 37.8% | [Maharana et al. 2024](https://arxiv.org/abs/2402.17753) |
-| **context-bench RLM** | **F1** | **43.1%** | This repo |
+| GPT-3.5-16K (paper best) | F1 | 37.8% | [Maharana et al. 2024](https://arxiv.org/abs/2402.17753) |
+| **context-bench RLM** | **F1** | **37.4%** | This repo (N=1,986) |
+| MemGPT | LLM-Judge | ~40-50% | [Letta blog](https://www.letta.com/blog/benchmarking-ai-agent-memory) |
+| **context-bench RLM** | **LLM-Judge** | **53.3%** | This repo (N=1,986) |
 | Mem0 | LLM-Judge | 66.9% | [Mem0 paper](https://arxiv.org/html/2504.19413v1) |
-| **context-bench RLM** | **LLM-Judge** | **69%** | This repo |
+| Letta | LLM-Judge | 74.0% | [Letta blog](https://www.letta.com/blog/benchmarking-ai-agent-memory) |
 | Engram | LLM-Judge | 80.0% | [engram.fyi](https://www.engram.fyi/research) |
-| Backboard.io | LLM-Judge | 90.1% | [Press release](https://www.einnews.com/pr_news/863886023/) |
 | Human | F1 | 87.9% | Paper |
 
-The RLM system outperforms the original paper's best baseline on F1 and is competitive with Mem0 on LLM-Judge — using only open-source components (sentence-transformers, LanceDB, DuckDB).
+The RLM system matches the original paper's best baseline on raw F1 using only open-source components (sentence-transformers, LanceDB, DuckDB). On LLM-Judge it lands between MemGPT and Mem0. Adversarial and temporal remain hard for all systems — same pattern the original paper found.
 
-Per question type breakdown (RLM):
-
-| Type | F1 | LLM Judge | What it tests |
-|------|-----|-----------|---------------|
-| single_hop | 0.48 | 0.73 | Direct fact lookup |
-| multi_hop | 0.60 | 0.87 | Reasoning across multiple turns |
-| open_domain | 0.65 | 0.80 | General knowledge from conversation |
-| temporal | 0.13 | 0.40 | Time-sensitive questions ("what was X's job last year?") |
-| adversarial | 0.02 | 0.07 | Questions about things never discussed |
-
-Adversarial and temporal remain hard for all systems — same pattern the original paper found.
+> **Note on metrics:** The original paper uses token-level F1. Most 2025+ systems report LLM-as-Judge scores, which are much more lenient (e.g. MemMachine reports 91.7% judge but only ~25% F1). Numbers across different metrics are not directly comparable.
 
 <details>
 <summary>Reproduce these results</summary>
 
 ```bash
+git clone https://github.com/npow/context-bench.git
+cd context-bench
 uv sync
-# You need an OpenAI-compatible LLM endpoint running
+
+# You need an OpenAI-compatible LLM endpoint (OpenAI, Anthropic relay, vLLM, Ollama, etc.)
+# Full run (~7h for 3 systems x 10 conversations x 1,986 queries):
+uv run python3 run_full_locomo.py
+
+# Quick version (~15 min, 1 conversation):
 context-bench memory \
   --system naive --system embedding --system rlm \
   --relay http://localhost:8080 \
-  --model sonnet \
-  --dataset locomo -n 3
+  --dataset locomo -n 1
 ```
 
-Or via the Python API:
+Or via Python:
 
 ```python
 from context_bench.datasets.memory.locomo import locomo
@@ -73,17 +79,15 @@ from context_bench.evaluators.answer_quality import AnswerQuality
 from context_bench.evaluators.llm_judge_locomo import LLMJudgeLoCoMo
 from context_bench.memory_runner import evaluate_memory
 
-examples = locomo(n=3)
+examples = locomo()  # all 10 conversations
 systems = [
-    NaiveSystem(base_url="http://localhost:8080", model="sonnet", api_key="unused"),
-    EmbeddingSystem(base_url="http://localhost:8080", model="sonnet", top_k=50, api_key="unused"),
-    RLMSystem(base_url="http://localhost:8080", model="sonnet", api_key="unused"),
+    NaiveSystem(base_url="http://localhost:8080", model="gpt-4", api_key="..."),
+    EmbeddingSystem(base_url="http://localhost:8080", model="gpt-4", top_k=50, api_key="..."),
+    RLMSystem(base_url="http://localhost:8080", model="gpt-4", api_key="..."),
 ]
-evaluators = [AnswerQuality(), LLMJudgeLoCoMo(relay_url="http://localhost:8080", model="sonnet")]
+evaluators = [AnswerQuality(), LLMJudgeLoCoMo(relay_url="http://localhost:8080", model="gpt-4")]
 
 result = evaluate_memory(systems=systems, dataset=examples, evaluators=evaluators)
-for row in result.rows:
-    print(f"{row.system}: f1={row.scores.get('f1', 0):.3f} judge={row.scores.get('llm_judge', 0):.1f}")
 ```
 </details>
 
@@ -106,7 +110,7 @@ Evaluators are auto-wired — F1 for QA, code execution for HumanEval, LaTeX-awa
 
 ### Let an LLM improve your pipeline automatically
 
-The autoresearch loop uses Claude to iteratively mutate and test a retrieval pipeline. The `bm25_entity_v4` pipeline in the results above was produced this way — 40 iterations of propose-evaluate-keep:
+The autoresearch loop uses Claude to iteratively mutate and test a retrieval pipeline:
 
 ```bash
 uv run python3 loop.py \
@@ -115,6 +119,8 @@ uv run python3 loop.py \
   --output-dir loop_results/ \
   --pipeline-path pipeline/sota_pipeline.py
 ```
+
+Each iteration: Claude reads the pipeline source + score history, proposes one architectural change, evaluates it, keeps improvements. Run it overnight with the watchdog script.
 
 ---
 
@@ -129,7 +135,7 @@ uv sync --extra datasets      # + HuggingFace dataset loaders
 
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
-You'll need an OpenAI-compatible LLM endpoint for the systems that call an LLM (naive, rlm, and the LLM judge evaluator). Any endpoint that serves `/v1/chat/completions` works — OpenAI, Anthropic via a relay, vLLM, Ollama, etc.
+You need an OpenAI-compatible LLM endpoint for systems that call an LLM. Any endpoint that serves `/v1/chat/completions` works — OpenAI, Anthropic via a proxy, vLLM, Ollama, etc.
 
 ### Memory benchmark (quickest way to see results)
 
@@ -267,7 +273,7 @@ The memory benchmark tests whether a system can answer questions about conversat
 | `LLMJudgeLoCoMo` | LLM rates answer quality with evidence matching |
 | `FalseMemoryRate` | Detects hallucinated/fabricated memories |
 
-Filter by QA type to focus on specific capabilities:
+Filter by QA type:
 
 ```bash
 context-bench memory \
