@@ -76,6 +76,12 @@ class ContextPipeline:
         self._turn_roles: list[str] = []
         self.last_context_tokens: int = 0
 
+    @staticmethod
+    def _get_turn(turn, key, default=""):
+        if isinstance(turn, dict):
+            return self._get_turn(turn,key, default)
+        return getattr(turn, key, default)
+
     @property
     def name(self) -> str:
         return "bm25_entity_v3"
@@ -312,8 +318,8 @@ class ContextPipeline:
         turn_roles: list[str] = []
 
         for idx, turn in enumerate(turns):
-            content = turn.get("content", "") or ""
-            role = turn.get("role", "user")
+            content = self._get_turn(turn,"content", "") or ""
+            role = self._get_turn(turn,"role", "user")
             turn_roles.append(role)
             text = f"{role}: {content}"
 
@@ -555,8 +561,8 @@ class ContextPipeline:
             chunk_text_lines: list[str] = []
             for idx in chunk_indices:
                 turn = self._turns[idx]
-                role = turn.get("role", "user").upper()
-                content = (turn.get("content", "") or "")[:600]
+                role = self._get_turn(turn,"role", "user").upper()
+                content = (self._get_turn(turn,"content", "") or "")[:600]
                 line = f"[T{idx}] {role}: {content}"
                 chunk_text_lines.append(line)
 
@@ -583,8 +589,8 @@ class ContextPipeline:
         lines = []
         for i in range(start, n):
             turn = self._turns[i]
-            role = turn.get("role", "user").upper()
-            content = (turn.get("content", "") or "")[:400]
+            role = self._get_turn(turn,"role", "user").upper()
+            content = (self._get_turn(turn,"content", "") or "")[:400]
             lines.append(f"[T{i}] {role}: {content}")
         return start, "\n".join(lines)
 

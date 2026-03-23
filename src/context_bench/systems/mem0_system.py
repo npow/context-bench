@@ -59,6 +59,8 @@ class Mem0System:
 
     def _init_mem0(self) -> None:
         Memory = _require_mem0()
+        # Mem0 checks OPENROUTER_API_KEY first and ignores our config if set
+        _saved_or = os.environ.pop("OPENROUTER_API_KEY", None)
         config = {
             "llm": {
                 "provider": "openai",
@@ -75,12 +77,19 @@ class Mem0System:
                 },
             },
             # Use in-memory vector store — no external DB needed
+            # 384 dims = sentence-transformers/all-MiniLM-L6-v2
             "vector_store": {
                 "provider": "qdrant",
-                "config": {"collection_name": "mem0_eval", "on_disk": False},
+                "config": {
+                    "collection_name": "mem0_eval",
+                    "embedding_model_dims": 384,
+                    "on_disk": False,
+                },
             },
         }
         self._mem = Memory.from_config(config)
+        if _saved_or is not None:
+            os.environ["OPENROUTER_API_KEY"] = _saved_or
 
     @property
     def name(self) -> str:

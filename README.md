@@ -14,13 +14,16 @@ You built something that sits between a user and an LLM: a context compressor, a
 
 [LoCoMo](https://huggingface.co/datasets/snap-research/LoCoMo) tests whether a system can answer questions about 400–700 turn conversations — temporal reasoning, multi-hop lookups, adversarial traps. The original paper's best baseline (GPT-3.5-turbo-16K) scores **37.8% F1**. Human ceiling is **87.9% F1**.
 
-Full benchmark run — all 10 conversations, all 1,986 questions, scored with both token-level F1 and an LLM judge:
+Full benchmark — all 10 conversations, all 1,986 questions, scored with both token-level F1 and an LLM judge (Claude Sonnet as judge):
 
-| System | F1 | LLM Judge | Strategy |
-|--------|-----|-----------|----------|
-| naive | 6.7% | 10.7% | Stuff all turns into the prompt |
-| embedding | 15.1% | 21.2% | Top-50 turns by semantic similarity |
-| **rlm** | **37.4%** | **53.3%** | Multi-strategy retrieval (semantic + keyword + entity) → LLM |
+| System | F1 | LLM Judge | N | Strategy |
+|--------|-----|-----------|---|----------|
+| naive | 6.7% | 10.7% | 1,986 | Stuff all turns into the prompt |
+| Mem0 | 6.6% | 27.6% | 199 | Extract-then-retrieve (Mem0 OSS) |
+| embedding | 15.1% | 21.2% | 1,986 | Top-50 turns by semantic similarity |
+| **rlm** | **37.4%** | **53.3%** | **1,986** | Multi-strategy retrieval (semantic + keyword + entity) → LLM |
+
+Mem0 was run via `uv sync --extra mem0` with local HuggingFace embeddings and the same Claude Sonnet backend as all other systems. Its extraction-based approach (LLM calls during ingest) loses significant detail from long conversations — the extract step takes ~90 min for one 419-turn conversation.
 
 Per question type (RLM system):
 
@@ -36,18 +39,20 @@ Per question type (RLM system):
 
 | System | Metric | Score | Source |
 |--------|--------|-------|--------|
+| context-bench Mem0 | F1 | 6.6% | This repo (N=199, ran ourselves) |
 | GPT-3.5-16K (paper best) | F1 | 37.8% | [Maharana et al. 2024](https://arxiv.org/abs/2402.17753) |
-| **context-bench RLM** | **F1** | **37.4%** | This repo (N=1,986) |
+| **context-bench RLM** | **F1** | **37.4%** | This repo (N=1,986, ran ourselves) |
+| context-bench Mem0 | LLM-Judge | 27.6% | This repo (N=199, ran ourselves) |
 | MemGPT | LLM-Judge | ~40-50% | [Letta blog](https://www.letta.com/blog/benchmarking-ai-agent-memory) |
-| **context-bench RLM** | **LLM-Judge** | **53.3%** | This repo (N=1,986) |
-| Mem0 | LLM-Judge | 66.9% | [Mem0 paper](https://arxiv.org/html/2504.19413v1) |
+| **context-bench RLM** | **LLM-Judge** | **53.3%** | This repo (N=1,986, ran ourselves) |
+| Mem0 (published) | LLM-Judge | 66.9% | [Mem0 paper](https://arxiv.org/html/2504.19413v1) |
 | Letta | LLM-Judge | 74.0% | [Letta blog](https://www.letta.com/blog/benchmarking-ai-agent-memory) |
 | Engram | LLM-Judge | 80.0% | [engram.fyi](https://www.engram.fyi/research) |
 | Human | F1 | 87.9% | Paper |
 
-The RLM system matches the original paper's best baseline on raw F1 using only open-source components (sentence-transformers, LanceDB, DuckDB). On LLM-Judge it lands between MemGPT and Mem0. Adversarial and temporal remain hard for all systems — same pattern the original paper found.
+The RLM system matches the original paper's best baseline on raw F1 using only open-source components (sentence-transformers, LanceDB, DuckDB). Mem0's published 66.9% LLM-Judge score uses their managed cloud platform with GPT-4 as judge — our local OSS run with Claude Sonnet as judge scored 27.6%.
 
-> **Note on metrics:** The original paper uses token-level F1. Most 2025+ systems report LLM-as-Judge scores, which are much more lenient (e.g. MemMachine reports 91.7% judge but only ~25% F1). Numbers across different metrics are not directly comparable.
+> **Note on metrics:** The original paper uses token-level F1. Most 2025+ systems report LLM-as-Judge scores, which are much more lenient (e.g. MemMachine reports 91.7% judge but only ~25% F1). Numbers across different metrics are not directly comparable. Judge model choice also matters — our results use Claude Sonnet, others use GPT-4/4o.
 
 <details>
 <summary>Reproduce these results</summary>
