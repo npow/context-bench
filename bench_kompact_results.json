@@ -1,0 +1,1778 @@
+[
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.3333333333333333,
+    "judge": 1.0,
+    "latency": 2.3,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 2.0,
+    "context_tokens": 14205
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.36363636363636365,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.7272727272727272,
+    "judge": 0.0,
+    "latency": 2.2,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 2.5,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5714285714285714,
+    "judge": 1.0,
+    "latency": 3.6,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.25,
+    "judge": 1.0,
+    "latency": 1.8,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 1.8,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.14285714285714285,
+    "judge": 0.0,
+    "latency": 2.4,
+    "context_tokens": 14216
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.4444444444444444,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.28571428571428575,
+    "judge": 1.0,
+    "latency": 2.3,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 2.5,
+    "context_tokens": 14205
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.3529411764705882,
+    "judge": 1.0,
+    "latency": 2.9,
+    "context_tokens": 14209
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.4615384615384615,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 1.8,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 2.3,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.28571428571428575,
+    "judge": 1.0,
+    "latency": 1.7,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 2.1,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.2,
+    "judge": 1.0,
+    "latency": 2.0,
+    "context_tokens": 14209
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.16666666666666666,
+    "judge": 0.0,
+    "latency": 3.0,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.33333333333333337,
+    "judge": 1.0,
+    "latency": 3.8,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 2.1,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 3.0,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 2.1,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.37499999999999994,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 14214
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 1.9,
+    "context_tokens": 14204
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 2.5,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.30769230769230765,
+    "judge": 1.0,
+    "latency": 2.5,
+    "context_tokens": 14209
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 1.8,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 2.0,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.6,
+    "judge": 0.0,
+    "latency": 2.5,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.7692307692307693,
+    "judge": 1.0,
+    "latency": 3.2,
+    "context_tokens": 14205
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.7272727272727272,
+    "judge": 0.0,
+    "latency": 2.3,
+    "context_tokens": 14212
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.4444444444444444,
+    "judge": 1.0,
+    "latency": 2.3,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.16666666666666666,
+    "judge": 0.0,
+    "latency": 2.3,
+    "context_tokens": 14204
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.4444444444444444,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 1.7,
+    "context_tokens": 14209
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.375,
+    "judge": 1.0,
+    "latency": 2.2,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 1.5,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.25,
+    "judge": 0.0,
+    "latency": 3.0,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 1.6,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.25,
+    "judge": 1.0,
+    "latency": 2.8,
+    "context_tokens": 14204
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.8333333333333333,
+    "judge": 1.0,
+    "latency": 2.3,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 2.0,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.28571428571428575,
+    "judge": 1.0,
+    "latency": 1.9,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.4444444444444444,
+    "judge": 1.0,
+    "latency": 2.1,
+    "context_tokens": 14205
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.23529411764705882,
+    "judge": 1.0,
+    "latency": 3.2,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 1.9,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 2.2,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.1818181818181818,
+    "judge": 1.0,
+    "latency": 2.2,
+    "context_tokens": 11348
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 11350
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 1.4,
+    "context_tokens": 11345
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 1.3,
+    "context_tokens": 11353
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.4444444444444444,
+    "judge": 1.0,
+    "latency": 2.3,
+    "context_tokens": 11346
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5714285714285715,
+    "judge": 1.0,
+    "latency": 2.3,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 1.6,
+    "context_tokens": 11348
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 1.5,
+    "context_tokens": 11350
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.2,
+    "judge": 1.0,
+    "latency": 2.5,
+    "context_tokens": 11347
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 1.3,
+    "context_tokens": 11355
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 0.0,
+    "latency": 1.8,
+    "context_tokens": 11348
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 1.7,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.33333333333333337,
+    "judge": 1.0,
+    "latency": 2.2,
+    "context_tokens": 11348
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 4.1,
+    "context_tokens": 11355
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 2.1,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 1.9,
+    "context_tokens": 11345
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.4,
+    "judge": 1.0,
+    "latency": 2.0,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 2.6,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 2.1,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 1.7,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.8571428571428571,
+    "judge": 1.0,
+    "latency": 1.3,
+    "context_tokens": 11352
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 1.4,
+    "context_tokens": 11346
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 6.7,
+    "context_tokens": 11353
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 2.3,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5714285714285715,
+    "judge": 1.0,
+    "latency": 2.0,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 2.7,
+    "context_tokens": 22140
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 1.8,
+    "context_tokens": 22139
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 3.1,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.3333333333333333,
+    "judge": 0.0,
+    "latency": 2.8,
+    "context_tokens": 22137
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 2.6,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.13333333333333333,
+    "judge": 1.0,
+    "latency": 2.7,
+    "context_tokens": 22139
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.7692307692307692,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 2.4,
+    "context_tokens": 22143
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 2.4,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 2.5,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.28571428571428575,
+    "judge": 1.0,
+    "latency": 2.0,
+    "context_tokens": 22140
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.16666666666666669,
+    "judge": 1.0,
+    "latency": 2.7,
+    "context_tokens": 22139
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 2.3,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 0.0,
+    "latency": 2.1,
+    "context_tokens": 22140
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 2.5,
+    "context_tokens": 22143
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.18181818181818182,
+    "judge": 1.0,
+    "latency": 3.6,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 2.3,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.08695652173913043,
+    "judge": 0.0,
+    "latency": 5.0,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.28571428571428575,
+    "judge": 1.0,
+    "latency": 2.0,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5454545454545454,
+    "judge": 0.0,
+    "latency": 2.5,
+    "context_tokens": 22140
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.4,
+    "judge": 1.0,
+    "latency": 2.9,
+    "context_tokens": 22136
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 2.7,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 2.1,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.4444444444444444,
+    "judge": 1.0,
+    "latency": 2.8,
+    "context_tokens": 22143
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 2.4,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.5454545454545454,
+    "judge": 1.0,
+    "latency": 2.5,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 2.5,
+    "context_tokens": 22137
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.4,
+    "judge": 0.0,
+    "latency": 2.3,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 2.8,
+    "context_tokens": 22137
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 2.3,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "temporal",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 2.2,
+    "context_tokens": 22140
+  },
+  {
+    "system": "naive_kompact",
+    "query_type": "multi_hop",
+    "f1": 0.2,
+    "judge": 1.0,
+    "latency": 2.2,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 0.0,
+    "latency": 5.7,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 6.9,
+    "context_tokens": 14205
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.5714285714285715,
+    "judge": 1.0,
+    "latency": 6.2,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.7272727272727272,
+    "judge": 0.0,
+    "latency": 5.4,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 12.0,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.7499999999999999,
+    "judge": 0.0,
+    "latency": 5.2,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5454545454545454,
+    "judge": 0.0,
+    "latency": 4.7,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.25,
+    "judge": 1.0,
+    "latency": 6.5,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.8571428571428571,
+    "judge": 1.0,
+    "latency": 5.7,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.3076923076923077,
+    "judge": 1.0,
+    "latency": 5.1,
+    "context_tokens": 14216
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.4,
+    "judge": 1.0,
+    "latency": 6.0,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 7.1,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 0.0,
+    "latency": 5.9,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.3333333333333333,
+    "judge": 0.0,
+    "latency": 5.8,
+    "context_tokens": 14205
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.33333333333333326,
+    "judge": 1.0,
+    "latency": 4.3,
+    "context_tokens": 14209
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.4444444444444444,
+    "judge": 1.0,
+    "latency": 5.9,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 9.4,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 6.2,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.4000000000000001,
+    "judge": 0.0,
+    "latency": 5.4,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 6.4,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.2857142857142857,
+    "judge": 1.0,
+    "latency": 6.1,
+    "context_tokens": 14209
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 6.6,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 0.0,
+    "latency": 6.1,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.3,
+    "judge": 1.0,
+    "latency": 7.1,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 5.2,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.7499999999999999,
+    "judge": 0.0,
+    "latency": 6.3,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 6.4,
+    "context_tokens": 14214
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.25,
+    "judge": 0.0,
+    "latency": 5.8,
+    "context_tokens": 14204
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6153846153846154,
+    "judge": 1.0,
+    "latency": 6.3,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.36363636363636365,
+    "judge": 1.0,
+    "latency": 5.6,
+    "context_tokens": 14209
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 7.1,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 5.0,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 6.3,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 6.0,
+    "context_tokens": 14205
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 5.9,
+    "context_tokens": 14212
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 0.0,
+    "latency": 6.2,
+    "context_tokens": 14208
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 5.9,
+    "context_tokens": 14204
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.4,
+    "judge": 1.0,
+    "latency": 5.8,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.25,
+    "judge": 1.0,
+    "latency": 9.2,
+    "context_tokens": 14209
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.39999999999999997,
+    "judge": 1.0,
+    "latency": 7.6,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 5.5,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 9.5,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 6.9,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 6.1,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.25,
+    "judge": 1.0,
+    "latency": 8.5,
+    "context_tokens": 14204
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 8.6,
+    "context_tokens": 14207
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.30769230769230765,
+    "judge": 1.0,
+    "latency": 5.0,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6,
+    "judge": 1.0,
+    "latency": 3.6,
+    "context_tokens": 14206
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.4,
+    "judge": 1.0,
+    "latency": 5.6,
+    "context_tokens": 14205
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.3,
+    "judge": 1.0,
+    "latency": 9.8,
+    "context_tokens": 14210
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5454545454545454,
+    "judge": 1.0,
+    "latency": 7.3,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 5.3,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.22222222222222224,
+    "judge": 1.0,
+    "latency": 6.9,
+    "context_tokens": 11348
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 5.4,
+    "context_tokens": 11350
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 6.9,
+    "context_tokens": 11345
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 6.3,
+    "context_tokens": 11353
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5714285714285715,
+    "judge": 1.0,
+    "latency": 6.1,
+    "context_tokens": 11346
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 7.2,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 6.9,
+    "context_tokens": 11348
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.2,
+    "judge": 0.0,
+    "latency": 8.3,
+    "context_tokens": 11350
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.22222222222222224,
+    "judge": 1.0,
+    "latency": 8.4,
+    "context_tokens": 11347
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 0.0,
+    "latency": 6.3,
+    "context_tokens": 11355
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.42857142857142855,
+    "judge": 1.0,
+    "latency": 6.6,
+    "context_tokens": 11348
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6,
+    "judge": 1.0,
+    "latency": 6.6,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 7.2,
+    "context_tokens": 11348
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 9.8,
+    "context_tokens": 11355
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 0.0,
+    "latency": 7.8,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.3636363636363636,
+    "judge": 1.0,
+    "latency": 6.9,
+    "context_tokens": 11345
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.4615384615384615,
+    "judge": 1.0,
+    "latency": 7.1,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.25,
+    "judge": 0.0,
+    "latency": 6.0,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 5.9,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 6.6,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.8,
+    "judge": 1.0,
+    "latency": 8.4,
+    "context_tokens": 11349
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.42857142857142855,
+    "judge": 1.0,
+    "latency": 5.7,
+    "context_tokens": 11352
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.7499999999999999,
+    "judge": 1.0,
+    "latency": 6.3,
+    "context_tokens": 11346
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.4444444444444444,
+    "judge": 1.0,
+    "latency": 7.6,
+    "context_tokens": 11353
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 7.6,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 6.2,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 0.0,
+    "latency": 5.1,
+    "context_tokens": 22140
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 6.5,
+    "context_tokens": 22139
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.16666666666666666,
+    "judge": 1.0,
+    "latency": 7.0,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.4444444444444444,
+    "judge": 1.0,
+    "latency": 5.8,
+    "context_tokens": 22137
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 6.7,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.18181818181818182,
+    "judge": 1.0,
+    "latency": 6.9,
+    "context_tokens": 22139
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 7.2,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.7272727272727272,
+    "judge": 1.0,
+    "latency": 6.7,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 7.6,
+    "context_tokens": 22143
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.25,
+    "judge": 1.0,
+    "latency": 7.3,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 6.5,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 5.8,
+    "context_tokens": 22140
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.3333333333333333,
+    "judge": 0.0,
+    "latency": 6.0,
+    "context_tokens": 22139
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 6.3,
+    "context_tokens": 22138
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 0.0,
+    "latency": 6.3,
+    "context_tokens": 22140
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 6.5,
+    "context_tokens": 22143
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 6.7,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5,
+    "judge": 1.0,
+    "latency": 5.3,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.16666666666666666,
+    "judge": 0.0,
+    "latency": 7.2,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.5454545454545454,
+    "judge": 0.0,
+    "latency": 7.4,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.7272727272727272,
+    "judge": 0.0,
+    "latency": 6.8,
+    "context_tokens": 22140
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.4444444444444445,
+    "judge": 0.0,
+    "latency": 6.6,
+    "context_tokens": 22136
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.25,
+    "judge": 1.0,
+    "latency": 18.2,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 1.0,
+    "latency": 6.4,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.6666666666666666,
+    "judge": 1.0,
+    "latency": 5.3,
+    "context_tokens": 22143
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.9090909090909091,
+    "judge": 1.0,
+    "latency": 7.6,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 5.5,
+    "context_tokens": 22141
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 5.6,
+    "context_tokens": 22137
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.4,
+    "judge": 0.0,
+    "latency": 4.5,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 1.0,
+    "judge": 1.0,
+    "latency": 6.8,
+    "context_tokens": 22137
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.4,
+    "judge": 1.0,
+    "latency": 6.1,
+    "context_tokens": 22142
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "temporal",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 6.2,
+    "context_tokens": 22140
+  },
+  {
+    "system": "naive_direct",
+    "query_type": "multi_hop",
+    "f1": 0.0,
+    "judge": 0.0,
+    "latency": 17.8,
+    "context_tokens": 0
+  }
+]
