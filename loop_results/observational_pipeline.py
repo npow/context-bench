@@ -68,11 +68,43 @@ class ContextPipeline:
     # Ingest — LLM-based observation extraction
     # ------------------------------------------------------------------
 
+    # Date extraction patterns
+    _DATE_PATTERNS = [
+        # "January 5th", "February 12", "March 3rd, 2024"
+        re.compile(r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b', re.IGNORECASE),
+        # "5th of January", "12th of March"
+        re.compile(r'\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+(\d{4}))?\b', re.IGNORECASE),
+        # ISO dates
+        re.compile(r'\b(\d{4}-\d{2}-\d{2})\b'),
+    ]
+    _RELATIVE_DATE_WORDS = re.compile(
+        r'\b(yesterday|today|tomorrow|last\s+(?:week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|'
+        r'next\s+(?:week|month)|this\s+(?:week|month|morning|afternoon|evening)|'
+        r'\d+\s+(?:days?|weeks?|months?|years?)\s+ago|'
+        r'(?:a|two|three|four|five|six|seven|eight|nine|ten)\s+(?:days?|weeks?|months?)\s+ago)\b',
+        re.IGNORECASE,
+    )
+
     def ingest(self, turns: list[dict[str, Any]]) -> None:
         self._turns = turns
         n = len(turns)
 
-        # Process turns in chunks, creating observations for each
+        # Step 1: Build date timeline (pure Python, no LLM)
+        self._date_timeline: list[str] = []
+        for idx, turn in enumerate(turns):
+            content = self._get_turn(turn, "content", "") or ""
+            role = self._get_turn(turn, "role", "user") or "user"
+            # Extract explicit dates
+            for pat in self._DATE_PATTERNS:
+                for m in pat.finditer(content):
+                    context = content[max(0, m.start()-40):m.end()+40].strip()
+                    self._date_timeline.append(f"T{idx} ({role}): {m.group()} — \"{context}\"")
+            # Extract relative date references
+            for m in self._RELATIVE_DATE_WORDS.finditer(content):
+                context = content[max(0, m.start()-40):m.end()+40].strip()
+                self._date_timeline.append(f"T{idx} ({role}): {m.group()} — \"{context}\"")
+
+        # Step 2: Process turns in chunks, creating observations for each
         for start in range(0, n, _CHUNK_SIZE):
             chunk = turns[start:start + _CHUNK_SIZE]
             chunk_text = self._format_chunk(chunk, start)
@@ -162,7 +194,8 @@ class ContextPipeline:
             "how many days", "how long", "when did", "what date",
             "what year", "which month", "first time", "last time",
             "how many weeks", "how many months", "before", "after",
-            "how often",
+            "how often", "which", "first", "order", "earlier", "later",
+            "ago", "since", "duration",
         ))
         is_knowledge_update = any(kw in q_lower for kw in (
             "current", "now", "latest", "recently", "changed",
@@ -173,11 +206,19 @@ class ContextPipeline:
         ))
 
         if is_temporal:
+            # Inject date timeline for temporal questions
+            date_block = "\n".join(self._date_timeline[-80:]) if self._date_timeline else "(no dates extracted)"
             hint = (
-                "This is a TEMPORAL question. Look at the turn indices [T###] and any "
-                "dates mentioned in the observations to determine timing. Higher T numbers "
-                "= later in the conversation. If specific dates are mentioned, use them "
-                "to compute exact day counts. Show your date arithmetic."
+                "This is a TEMPORAL question requiring date/time reasoning.\n\n"
+                "## DATE TIMELINE (extracted from conversation)\n"
+                f"{date_block}\n\n"
+                "## HOW TO ANSWER\n"
+                "1. Find the events mentioned in the question in the timeline above.\n"
+                "2. Identify their dates (look for month/day mentions near the turn index).\n"
+                "3. For 'how many days' questions: count calendar days between the two dates.\n"
+                "4. For 'which came first': lower turn number T = earlier.\n"
+                "5. For 'how long had X when Y': find start date of X and date of Y, compute difference.\n"
+                "6. Give ONLY the final answer."
             )
         elif is_knowledge_update:
             hint = (

@@ -98,6 +98,41 @@ result = evaluate_memory(systems=systems, dataset=examples, evaluators=evaluator
 
 ---
 
+## Results: LongMemEval-M (ultra-long conversations)
+
+[LongMemEval](https://huggingface.co/datasets/LongMemEval) tests memory over ~5,000-turn conversations (~776K words each) — much longer than LoCoMo. Six question types: knowledge updates, multi-session recall, single-session facts, preferences, and temporal reasoning.
+
+30 examples (5 per question type), Claude Sonnet as both answerer and judge:
+
+| System | F1 | LLM Judge | N | Strategy |
+|--------|-----|-----------|---|----------|
+| naive | 0.0% | 0.0% | 30 | Context too large — fails completely |
+| rlm | 41.9% | 53.3% | 30 | Multi-strategy retrieval → LLM |
+| **embedding** | **43.4%** | **56.7%** | 30 | Top-50 turns by semantic similarity |
+
+Per question type (embedding system):
+
+| Type | F1 | Judge | What it tests |
+|------|-----|-------|---------------|
+| single-session-assistant | 91.7% | 100% | What did the assistant say? |
+| single-session-user | 65.7% | 80.0% | What did the user say? |
+| knowledge-update | 37.7% | 40.0% | Info that changed over time |
+| temporal-reasoning | 28.2% | 20.0% | When did something happen? |
+| multi-session | 23.5% | 40.0% | Info spanning multiple sessions |
+| single-session-preference | 13.4% | 60.0% | User preferences |
+
+Context stuffing (naive) completely fails on 5,000-turn conversations. Embedding and RLM both handle it — embedding wins on this benchmark because pure semantic similarity works well for direct recall, while RLM's entity/keyword strategies add less value when conversations are this long and diverse.
+
+<details>
+<summary>Reproduce these results</summary>
+
+```bash
+uv run python3 run_full_longmemeval.py
+```
+</details>
+
+---
+
 ## What else can it do?
 
 ### Benchmark any OpenAI-compatible endpoint
