@@ -12,6 +12,8 @@ import random as _random
 
 from context_bench.datasets.memory.locomo import locomo
 from context_bench.datasets.memory.longmemeval import longmemeval
+from context_bench.datasets.memory.membench import membench
+from context_bench.datasets.memory.convomem import convomem
 
 
 def split_conversations(
@@ -73,6 +75,8 @@ def sample_search_pool(
 __all__ = [
     "locomo",
     "longmemeval",
+    "membench",
+    "convomem",
     "split_conversations",
     "sample_search_pool",
 ]
