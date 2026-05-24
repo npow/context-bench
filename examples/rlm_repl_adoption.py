@@ -40,24 +40,25 @@ def main() -> None:
         max_iterations=4,
     )
 
-    examples = locomo(n=args.n, split="validation")
+    examples = locomo(n=args.n)
     total_q = 0
 
     for ex in examples:
-        turns = ex["turns"]
-        qa_pairs = ex["qa_pairs"][: args.queries_per_conv]
+        turns = ex.items
+        qa_pairs = ex.queries[: args.queries_per_conv]
 
-        print(f"\n[Conv {ex['id']}] ingesting {len(turns)} turns, {len(qa_pairs)} queries")
+        print(f"\n[Conv {ex.id}] ingesting {len(turns)} turns, {len(qa_pairs)} queries")
         system.ingest(turns)
 
         for qa in qa_pairs:
-            q = qa["question"]
+            q = qa.question
             result = system.query(q)
             total_q += 1
-            w = result.details.get("writes", 0)
-            c = result.details.get("consolidations", 0)
+            reads = result.details.get("reads", 0)
+            writes = result.details.get("writes", 0)
+            cons = result.details.get("consolidations", 0)
             print(
-                f"  Q{total_q}: writes={w} consolidate={c} "
+                f"  Q{total_q}: reads={reads} writes={writes} consolidate={cons} "
                 f"iters={result.details.get('iterations', '?')} | {q[:60]}"
             )
 
@@ -65,8 +66,9 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("ADOPTION STATS (pretrained baseline — no RL training)")
     print("=" * 60)
+    rate_keys = {"read_adoption_rate", "write_adoption_rate", "consolidate_adoption_rate"}
     for k, v in stats.items():
-        if isinstance(v, float):
+        if isinstance(v, float) and k in rate_keys:
             print(f"  {k}: {v:.1%}")
         else:
             print(f"  {k}: {v}")

@@ -83,9 +83,11 @@ class RLMSystemRepl(RLMSystem):
         super().__init__(**kwargs)
         self._write_count = 0
         self._consolidate_count = 0
+        self._read_count = 0
         self._repl_iterations: list[int] = []
         self._writes_per_query: list[int] = []
         self._consolidations_per_query: list[int] = []
+        self._reads_per_query: list[int] = []
 
     @property
     def name(self) -> str:
@@ -115,7 +117,7 @@ class RLMSystemRepl(RLMSystem):
         """Run the RLM REPL loop with memory_write and consolidate in scope."""
         # Mutable counters in a dict so inner closures can mutate them
         # without nonlocal (which breaks when closures are rebuilt per iter).
-        _counts: dict[str, int] = {"write": 0, "consolidate": 0}
+        _counts: dict[str, int] = {"write": 0, "consolidate": 0, "read": 0}
         retrieved_context: list[str] = []
         iterations = 0
         context_tokens = 0
@@ -146,6 +148,7 @@ class RLMSystemRepl(RLMSystem):
                     ev: threading.Event = _this_cancelled,
                     duck: Any = duck_rw,
                     ctx: list = retrieved_context,
+                    counts: dict = _counts,
                 ) -> Any:
                     def memory_read(query: str, k: int = 20) -> list[str]:
                         if ev.is_set():
@@ -162,6 +165,7 @@ class RLMSystemRepl(RLMSystem):
                                 seen.add(key)
                                 unique.append(r)
                                 ctx.append(r)
+                        counts["read"] += 1
                         return unique[:k]
                     return memory_read
 
@@ -342,13 +346,16 @@ class RLMSystemRepl(RLMSystem):
         context_tokens = context_tokens or len(" ".join(retrieved_context).split())
         write_count = _counts["write"]
         consolidate_count = _counts["consolidate"]
+        read_count = _counts["read"]
 
         # Track per-query stats
         self._write_count += write_count
         self._consolidate_count += consolidate_count
+        self._read_count += read_count
         self._repl_iterations.append(iterations)
         self._writes_per_query.append(write_count)
         self._consolidations_per_query.append(consolidate_count)
+        self._reads_per_query.append(read_count)
 
         return QueryResult(
             answer=final_answer,
@@ -357,6 +364,7 @@ class RLMSystemRepl(RLMSystem):
             details={
                 "method": "rlm_repl",
                 "iterations": iterations,
+                "reads": read_count,
                 "writes": write_count,
                 "consolidations": consolidate_count,
                 "answer_ready": answer.get("ready", False),
@@ -376,18 +384,21 @@ class RLMSystemRepl(RLMSystem):
         n = len(self._writes_per_query)
         if n == 0:
             return {"queries": 0}
+        queries_with_reads = sum(1 for r in self._reads_per_query if r > 0)
         queries_with_writes = sum(1 for w in self._writes_per_query if w > 0)
         queries_with_consolidate = sum(1 for c in self._consolidations_per_query if c > 0)
         return {
             "queries": n,
+            "total_reads": self._read_count,
             "total_writes": self._write_count,
             "total_consolidations": self._consolidate_count,
+            "queries_with_reads": queries_with_reads,
             "queries_with_writes": queries_with_writes,
             "queries_with_consolidations": queries_with_consolidate,
+            "read_adoption_rate": queries_with_reads / n,
             "write_adoption_rate": queries_with_writes / n,
             "consolidate_adoption_rate": queries_with_consolidate / n,
             "mean_iterations": sum(self._repl_iterations) / n,
-            "mean_writes_per_query": self._write_count / n,
         }
 
 
