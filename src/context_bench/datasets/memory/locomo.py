@@ -75,8 +75,24 @@ def locomo(
         # turns is a list of raw strings: "timestamp\n Speaker: text\n"
         # Preserve timestamps and real speaker names — both are critical for
         # LoCoMo temporal questions ("when did X happen?") and entity questions.
+        #
+        # Session assignment: LoCoMo's `sessions` field is a list of session text
+        # blocks. We count speaker utterances in each session block to assign
+        # session_id to each ConversationTurn (needed for BM25 session retrieval).
+        raw_sessions_blocks = item.get("sessions", [])
+        # Count how many speaker lines exist per session block
+        turns_per_session = []
+        for block in raw_sessions_blocks:
+            count = sum(1 for l in block.split("\n")
+                        if l.strip().startswith("Speaker_1:") or l.strip().startswith("Speaker_2:"))
+            turns_per_session.append(max(1, count))
+        # Build a session_id assignment list in flat-turn order
+        session_assignment = []
+        for sidx, cnt in enumerate(turns_per_session):
+            session_assignment.extend([str(sidx)] * cnt)
         raw_turns = item.get("turns", [])
         turns: list[ConversationTurn] = []
+        turn_idx = 0
         for raw in raw_turns:
             lines = [l.strip() for l in raw.strip().splitlines() if l.strip()]
             if not lines:
@@ -118,12 +134,16 @@ def locomo(
                         prefix += f"[{timestamp}] "
                     if speaker not in ("Speaker_1", "Speaker_2"):
                         prefix += f"{speaker}: "
+                    # Assign session_id from sessions field if available
+                    sid = session_assignment[turn_idx] if turn_idx < len(session_assignment) else "0"
                     turns.append(ConversationTurn(
                         content=prefix + content,
                         role=role,
                         timestamp=timestamp or None,
                         speaker=speaker,
+                        session_id=sid,
                     ))
+                    turn_idx += 1
 
         questions = item.get("questions", [])
         answers = item.get("answers", [])

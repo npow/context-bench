@@ -469,6 +469,12 @@ class RLMSystem:
     # ------------------------------------------------------------------
 
     def _chat(self, messages: list[dict[str, Any]]) -> str:
+        # If BEDROCK_MODEL_ID env var is set, call Bedrock directly (works in Mako/Titus
+        # containers where the OpenAI relay URL isn't reachable).
+        bedrock_model = os.environ.get("BEDROCK_MODEL_ID")
+        if bedrock_model:
+            return self._chat_bedrock(messages, bedrock_model)
+
         url = f"{self._base_url}/v1/chat/completions"
         body = json.dumps({"model": self._model, "messages": messages}).encode()
         headers = {"Content-Type": "application/json"}
@@ -493,3 +499,29 @@ class RLMSystem:
                 raise RuntimeError(f"Connection error: {e.reason}") from e
 
         raise RuntimeError("Failed after 3 retries")
+
+    def _chat_bedrock(self, messages: list[dict[str, Any]], model_id: str) -> str:
+        """Bedrock backend for environments without the OpenAI relay (Mako/Titus)."""
+        import boto3
+        if not hasattr(self, "_bedrock_client"):
+            self._bedrock_client = boto3.client("bedrock-runtime", region_name="us-east-1")
+        # Map OpenAI-style messages to Anthropic format (drop system if present)
+        system_msgs = [m["content"] for m in messages if m.get("role") == "system"]
+        user_msgs = [m for m in messages if m.get("role") != "system"]
+        body = json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 1000,
+            "system": "\n\n".join(system_msgs) if system_msgs else None,
+            "messages": user_msgs,
+            "temperature": 0.3,
+        })
+        for attempt in range(3):
+            try:
+                resp = self._bedrock_client.invoke_model(body=body, modelId=model_id)
+                return json.loads(resp["body"].read())["content"][0]["text"]
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise RuntimeError(f"Bedrock error: {e}") from e
+        raise RuntimeError("Failed after 3 Bedrock retries")

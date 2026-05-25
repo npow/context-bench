@@ -56,13 +56,18 @@ You have access to these functions in your Python namespace:
     Call this when your retrieved context is large or redundant.
 
   answer: dict  ({"content": str, "ready": bool})
-    Set answer["content"] = "your answer" and answer["ready"] = True to finish.
+    Set answer["content"] to a SHORT direct answer string (under 15 words) and
+    answer["ready"] = True. Extract ONLY the key fact from retrieved items.
+    IMPORTANT: answer["content"] must be a plain string, NOT a list.
+    Example: answer["content"] = "May 8, 2023"  # correct
+    Example: answer["content"] = items[0]  # WRONG if items[0] is a long paragraph
+    Extract the specific answer: dates, names, activities — not retrieved paragraphs.
 
 Protocol:
 1. Call memory_read() to retrieve relevant context
 2. Optionally call memory_write() to persist derived facts
 3. Optionally call consolidate() if context is large
-4. Set answer["content"] and answer["ready"] = True
+4. Set answer["content"] (SHORT answer) and answer["ready"] = True
 
 Write Python code only. No markdown, no explanations — just executable Python.
 """).strip()
@@ -137,6 +142,22 @@ class RLMSystemRepl(RLMSystem):
                 iterations += 1
                 code = self._chat(messages)
                 code = _strip_code_fences(code)
+
+                # If SFT_TRACE_FILE env var is set, log the (messages, code)
+                # pair for later distillation training.
+                import os as _os
+                _trace_file = _os.environ.get("SFT_TRACE_FILE")
+                if _trace_file:
+                    try:
+                        import json as _json
+                        with open(_trace_file, "a") as _tf:
+                            _tf.write(_json.dumps({
+                                "messages": messages,
+                                "code": code,
+                                "iteration": iteration,
+                            }) + "\n")
+                    except Exception:
+                        pass
 
                 # Per-iteration cancellation event — never reused or cleared.
                 # The closure captures THIS event at definition time. If this

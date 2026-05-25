@@ -74,11 +74,18 @@ def longmemeval(
                 continue
 
         # Flatten all haystack sessions into one turn list in order
+        # LongMemEval-S exposes parallel arrays: haystack_session_ids, haystack_sessions,
+        # haystack_dates. Use the actual session IDs (e.g. "session_3") so that
+        # downstream answer_session_ids comparisons work.
+        haystack_session_ids = item.get("haystack_session_ids", [])
         turns: list[ConversationTurn] = []
         for session_idx, session in enumerate(item.get("haystack_sessions", [])):
             # Each session is a list of {"role": ..., "content": ...} dicts
             if isinstance(session, list):
-                session_id = str(session_idx)
+                if session_idx < len(haystack_session_ids):
+                    session_id = str(haystack_session_ids[session_idx])
+                else:
+                    session_id = str(session_idx)
                 for turn in session:
                     if turn.get("content", "").strip():
                         turns.append(ConversationTurn(
@@ -96,11 +103,19 @@ def longmemeval(
         if not turns or not question or not answer:
             continue
 
+        # Capture answer_session_ids — list of session indices (or ids) that contain
+        # the evidence. Use for diagnostic position studies; THIS IS GROUND TRUTH,
+        # not heuristic keyword match.
+        answer_session_ids = item.get("answer_session_ids") or []
         examples.append(BenchmarkExample(
             id=str(item.get("question_id", i)),
             items=turns,
             queries=[BenchmarkQuery(question=question, answer=answer, query_type=question_type)],
             dataset=f"longmemeval_{variant}",
+            metadata={
+                "answer_session_ids": [str(s) for s in answer_session_ids],
+                "n_sessions_total": len(item.get("haystack_sessions", [])),
+            },
         ))
 
     return examples

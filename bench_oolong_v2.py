@@ -9,7 +9,7 @@ import sys
 import time
 from collections import OrderedDict, defaultdict
 
-sys.path.insert(0, "/Users/npow/code/context-bench/src")
+sys.path.insert(0, "$(pwd)/src")
 
 from context_bench.datasets.memory.oolong import _normalize_answer, _split_into_chunks
 from context_bench.memory_types import BenchmarkExample, BenchmarkQuery, DocumentChunk
@@ -208,7 +208,7 @@ def main():
                 line += f" | {'--':>10}"
         print(line, flush=True)
 
-    outpath = "/Users/npow/code/context-bench/oolong_large_results.json"
+    outpath = "oolong_large_results.json"
     with open(outpath, "w") as f:
         json.dump(all_results, f, indent=2, default=str)
     print(f"\nResults saved to {outpath}", flush=True)
